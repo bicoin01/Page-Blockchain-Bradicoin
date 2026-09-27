@@ -13845,17 +13845,17 @@ donationIntroText: `
                 });
             }
 
-            if (list.length === 0) {
+                        if (list.length === 0) {
                 const t = translations[currentLang] || translations.en;
                 container.innerHTML = `
                     <div style="text-align:center;padding:40px 20px;color:#888;">
-                        <div style="font-size:32px;margin-bottom:10px;">📜</div>
-                        <p style="color:#00ccff;font-size:14px;margin-bottom:6px;">${t.txhNoTransactions || 'No transactions found'}</p>
-                        <p style="font-size:11px;color:#666;">${txHistoryCache.search ? (t.txhTryDifferentSearch || 'Try a different search term') : (t.txhWillAppear || 'Transactions will appear here')}</p>
-                     </div>
-               ;
-              return;
-       }
+                        <div style="font-size:32px;margin-bottom:10px;">🛡️</div>
+                        <p style="color:#c864ff;font-size:14px;margin-bottom:6px;">${t.vNoValidators || 'No validators found'}</p>
+                        <p style="font-size:11px;color:#666;">${validatorsSearchQuery ? (t.vTryDifferentSearch || 'Try a different search') : (t.vTryDifferentFilter || 'Try a different filter')}</p>
+                    </div>
+                `;
+                return;
+            }
 
             container.innerHTML = list.map((v, index) => {
                 const address = v.address || v.publicKey || 'Unknown';
@@ -14104,8 +14104,7 @@ donationIntroText: `
                     : await loadValidators(true) || [];
 
                 if (list.length === 0) {
-                    showNotification('📊 No validators registered yet', '#ffc800');
-                    return;
+                   const t = translations[currentLang] || translations.en;
                 }
 
                 const totalStake = list.reduce((s, v) => s + (Number(v.stake) || 0), 0);
