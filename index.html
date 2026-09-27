@@ -18573,7 +18573,8 @@ function initWebSocket() {
                 const sel = document.getElementById('languageSelect');
                 if (sel) sel.value = savedLang;
             }
-            document.body.classList.toggle('arabic', ['ar', 'he'].includes(currentLang);
+            
+            document.body.classList.toggle('arabic', ['ar', 'he'].includes(currentLang));
             updateLanguage();
 
             // UI EVENTS
