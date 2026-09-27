@@ -6,6 +6,11 @@
     <title>Bradicoin Blockchain - Complete Platform</title>
     <meta name="description" content="Complete Bradicoin blockchain platform with 50+ integrated features" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <link rel="preconnect" href="https://bradicoin-api.onrender.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://bradicoin-api.onrender.com">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://bradicoin-api.onrender.com/socket.io/socket.io.js" defer></script>
@@ -5049,32 +5054,41 @@ console.log(balance);</pre>
           total: 0
       };  
         
-        // ============================================
-        // 📡 HTTP CLIENT
+                // ============================================
+        // 📡 HTTP CLIENT — v2 (timeout adaptativo)
         // ============================================
         async function apiCall(path, options = {}) {
-    const controller = new AbortController();
-    // Timeout adaptativo: primeira chamada pode demorar (cold start do Render)
-    const isHealthCheck = path === '/health' || path.startsWith('/health');
-    const TIMEOUT = isHealthCheck ? 15000 : 10000;
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT);
-    try {
-        const res = await fetch(API_BASE + path, {
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            ...options
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
-        return data;
-    } catch (e) {
-        if (e.name === 'AbortError') throw new Error('Timeout');
-        throw e;
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
+            const controller = new AbortController();
+            
+            // ✅ Timeout adaptativo: primeira chamada pode demorar (cold start Render)
+            const isHealthCheck = path === '/health' || path.startsWith('/health');
+            const isFirstCall   = !window._apiWarmedUp;
+            
+            let TIMEOUT = 10000;
+            if (isHealthCheck) TIMEOUT = 45000;   // health acorda o servidor
+            if (isFirstCall)   TIMEOUT = 45000;   // primeira chamada da sessão
+            
+            const timeout = setTimeout(() => controller.abort(), TIMEOUT);
+            
+            try {
+                const res = await fetch(API_BASE + path, {
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    ...options
+                });
+                
+                window._apiWarmedUp = true;  // ✅ marca que o backend acordou
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+                return data;
+            } catch (e) {
+                if (e.name === 'AbortError') throw new Error('Timeout');
+                throw e;
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+        
         // ============================================
         // 📊 STATUS DA API
         // ============================================
@@ -17612,82 +17626,89 @@ async function searchWallet() {
             }
         }
 
+                // ============================================
+        // 🔌 WEBSOCKET — v2 (não-bloqueante)
         // ============================================
-        // WEBSOCKET
-        // ============================================
-         let socket = null;
+        let socket = null;
 
-function initWebSocket() {
-    if (typeof io === 'undefined') {
-        console.warn('⚠️ Socket.IO não carregado (defer ainda não resolveu) — retry em 3s');
-        setTimeout(initWebSocket, 3000);
-        return;
-    }
+        function initWebSocket() {
+            if (typeof io === 'undefined') {
+                console.warn('⚠️ Socket.IO ainda não carregou — retry em 3s');
+                setTimeout(initWebSocket, 3000);
+                return;
+            }
 
-    try {
-        socket = io('https://bradicoin-api.onrender.com', {
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: 3,
-            reconnectionDelay: 5000,
-            timeout: 20000
-        });
-    } catch (e) {
-        console.warn('⚠️ WebSocket falhou:', e.message);
-        return;
-    }
+            // ✅ Só tenta conectar se o backend já respondeu pelo HTTP
+            if (!window._apiWarmedUp) {
+                console.log('⏸️ WebSocket aguardando backend acordar...');
+                setTimeout(initWebSocket, 2000);
+                return;
+            }
 
-    socket.on('connect', () => {
-        console.log('🔌 WebSocket conectado');
-        updateApiStatus('online', '✅ API Online - Real-time conectado');
-    });
+            try {
+                socket = io('https://bradicoin-api.onrender.com', {
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionAttempts: 2,   // ✅ 3 → 2
+                    reconnectionDelay: 10000,  // ✅ 5s → 10s
+                    timeout: 8000,             // ✅ 20s → 8s
+                    autoConnect: true
+                });
+            } catch (e) {
+                console.warn('⚠️ WebSocket falhou:', e.message);
+                return;
+            }
 
-    socket.on('disconnect', () => {
-        console.warn('🔌 WebSocket desconectado');
-        updateApiStatus('offline', '❌ API Offline');
-    });
+            socket.on('connect', () => {
+                console.log('🔌 WebSocket conectado');
+                updateApiStatus('online', '✅ API Online - Real-time conectado');
+            });
 
-    socket.on('connect_error', () => {
-        // silencioso — não derruba a página
-    });
+            socket.on('disconnect', () => {
+                console.warn('🔌 WebSocket desconectado');
+                updateApiStatus('offline', '❌ API Offline');
+            });
 
-    socket.on('blockchain:init', (data) => {
-        if (!data) return;
-        if (data.blocks !== undefined) {
-            const el = document.getElementById('blockHeightValue');
-            if (el) el.textContent = data.blocks.toLocaleString();
-            const statEl = document.getElementById('statTotalBlocks');
-            if (statEl) statEl.textContent = data.blocks.toLocaleString();
+            socket.on('connect_error', () => {
+                // silencioso — não derruba a página
+            });
+
+            socket.on('blockchain:init', (data) => {
+                if (!data) return;
+                if (data.blocks !== undefined) {
+                    const el = document.getElementById('blockHeightValue');
+                    if (el) el.textContent = data.blocks.toLocaleString();
+                    const statEl = document.getElementById('statTotalBlocks');
+                    if (statEl) statEl.textContent = data.blocks.toLocaleString();
+                }
+                if (data.transactions !== undefined) {
+                    const el = document.getElementById('pendingValue');
+                    if (el) el.textContent = data.transactions;
+                    const statEl = document.getElementById('statPendingTX');
+                    if (statEl) statEl.textContent = data.transactions;
+                }
+                if (data.validators !== undefined) {
+                    const el = document.getElementById('validatorsValue');
+                    if (el) el.textContent = data.validators;
+                    const countEl = document.getElementById('validatorCount');
+                    if (countEl) countEl.textContent = data.validators + ' Active';
+                }
+            });
+
+            socket.on('block:mined', (block) => {
+                if (!block) return;
+                const el = document.getElementById('blockHeightValue');
+                if (el) el.textContent = block.index.toLocaleString();
+                const statEl = document.getElementById('statTotalBlocks');
+                if (statEl) statEl.textContent = block.index.toLocaleString();
+                showNotification('⛏️ Bloco #' + block.index + ' minerado!', '#00ff66');
+            });
+
+            socket.on('staking:reward', (data) => {
+                if (!data) return;
+                showNotification('💰 +' + Number(data.reward || 0).toFixed(2) + ' BRD de reward!', '#ffc800');
+            });
         }
-        if (data.transactions !== undefined) {
-            const el = document.getElementById('pendingValue');
-            if (el) el.textContent = data.transactions;
-            const statEl = document.getElementById('statPendingTX');
-            if (statEl) statEl.textContent = data.transactions;
-        }
-        if (data.validators !== undefined) {
-            const el = document.getElementById('validatorsValue');
-            if (el) el.textContent = data.validators;
-            const countEl = document.getElementById('validatorCount');
-            if (countEl) countEl.textContent = data.validators + ' Active';
-        }
-    });
-
-    socket.on('block:mined', (block) => {
-        if (!block) return;
-        const el = document.getElementById('blockHeightValue');
-        if (el) el.textContent = block.index.toLocaleString();
-        const statEl = document.getElementById('statTotalBlocks');
-        if (statEl) statEl.textContent = block.index.toLocaleString();
-        showNotification('⛏️ Bloco #' + block.index + ' minerado!', '#00ff66');
-    });
-
-    socket.on('staking:reward', (data) => {
-        if (!data) return;
-        showNotification('💰 +' + Number(data.reward || 0).toFixed(2) + ' BRD de reward!', '#ffc800');
-    });
-}
-
 
                 // ============================================
         // LOAD REAL DATA (PARALELO — 3 chamadas simultâneas)
@@ -17852,30 +17873,31 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
                 renderTransactionHistory();
             });
 
-                                    // ============================================
-            // 🚀 BOOT SERIALIZADO — evita 15 requisições simultâneas
+                        // ============================================
+            // 🚀 BOOT PARALELO OTIMIZADO — v2
             // ============================================
             (async () => {
-                // 1. Essencial: health + price + validators (em paralelo)
-                await loadRealData().catch(() => {});
-                initWebSocket();
+                // 1. CRÍTICO — dispara sem await (não bloqueia o resto)
+                loadRealData().catch(() => {});
 
-                await new Promise(r => setTimeout(r, 500));
+                // 2. WebSocket só depois que o backend acordou (com retry interno)
+                setTimeout(() => initWebSocket(), 1500);
 
-                // 2. Tokens e NFTs (paralelo, não bloqueia)
-                await Promise.allSettled([loadTokenList(), loadNFTList()]);
+                // 3. IMPORTANTE — 300ms depois, em paralelo, sem await
+                setTimeout(() => {
+                    Promise.allSettled([
+                        loadTokenList(),
+                        loadNFTList(),
+                        loadValidators()
+                    ]).catch(() => {});
+                }, 300);
 
-                await new Promise(r => setTimeout(r, 500));
+                // 4. OPCIONAL — escalonado, não compete com o boot
+                setTimeout(() => { initStakingPanel(); }, 1500);
+                setTimeout(() => { checkDevApiStatus(); restoreActiveApp(); }, 2500);
+                setTimeout(() => { qgInit(); }, 3000);
 
-                // 3. Validators
-                await loadValidators().catch(() => {});
-
-                // 4. Adia o resto — não é essencial na primeira tela
-                setTimeout(() => { initStakingPanel(); }, 2000);
-                setTimeout(() => { checkDevApiStatus(); restoreActiveApp(); }, 3000);
-                setTimeout(() => { qgInit(); }, 3500);
-
-                // 5. Fraud Detection só quando o usuário rolar até ele
+                // 5. FRAUD — só quando o usuário rolar até ele
                 const fraudRoot = document.getElementById('fraudRootPage');
                 if (fraudRoot && 'IntersectionObserver' in window) {
                     const obs = new IntersectionObserver((entries) => {
@@ -17892,11 +17914,28 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
                 }
             })();
 
-            // REFRESH AUTOMÁTICO (mais espaçado = menos requisições)
-            safeInterval(loadRealData, 90000);
-            safeInterval(() => loadValidators(true), 180000);
-            safeInterval(checkDevApiStatus, 300000);
-            safeInterval(() => loadTransactionHistory(true), 180000);
+            // ============================================
+            // ⏱️ INTERVALOS — só começam DEPOIS do boot (10s de folga)
+            // ============================================
+            setTimeout(() => {
+                // Real data a cada 90s
+                safeInterval(loadRealData, 90000);
+
+                // Validators a cada 3 min
+                safeInterval(() => loadValidators(true), 180000);
+
+                // Dev API status a cada 5 min
+                safeInterval(checkDevApiStatus, 300000);
+
+                // Transaction history a cada 3 min
+                safeInterval(() => loadTransactionHistory(true), 180000);
+
+                // Tokens/NFTs só quando visíveis
+                safeInterval(() => {
+                    if (panelVisible('tokenListPanel')) loadTokenList(true);
+                    if (panelVisible('nftListPanel'))   loadNFTList(true);
+                }, 180000);
+            }, 10000);  // ⏱️ espera 10s para não competir com o boot
 
             // Só quando painel visível
             safeInterval(() => {
@@ -17928,11 +17967,25 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
             
                       console.log('✅ Bradicoin Platform inicializado!');
 
+// ✅ Adiar o gráfico 800ms — deixa a página aparecer primeiro
+setTimeout(() => {
+    if (typeof Chart !== 'undefined') {
+        initNetworkChart();
+    } else {
+        // Aguarda Chart.js carregar (é defer)
+        let tries = 0;
+        const checkChart = setInterval(() => {
+            if (typeof Chart !== 'undefined' || tries++ > 20) {
+                clearInterval(checkChart);
+                if (typeof Chart !== 'undefined') initNetworkChart();
+            }
+        }, 200);
+    }
+}, 800);
+
             // ============================================
             // 📊 CHART.JS — NETWORK ACTIVITY FUTURISTA
             // ============================================
-            initNetworkChart();
-        });
 
         // ============================================
         // 📊 NETWORK ACTIVITY — Chart.js
