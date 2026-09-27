@@ -18926,7 +18926,9 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
         };
 
         let nsCache = { data: null, lastFetch: 0, ttl: 30000 };
-
+        let nsLastFailure = 0;
+        const NS_RETRY_COOLDOWN = 60000;
+        
         function nsFormatBig(n, prefix) {
             prefix = prefix || '';
             n = Number(n) || 0;
@@ -18992,7 +18994,13 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
 
         async function nsLoad(force) {
             const now = Date.now();
-            if (!force && nsCache.data && (now - nsCache.lastFetch) < nsCache.ttl) {
+
+            if (!force && nsLastFailure && (now - nsLastFailure) < NS_RETRY_COOLDOWN) {
+               console.warn('⏸️ API offline recentemente, aguardando cooldown');
+               return;
+           }
+        
+             if (!force && nsCache.data && (now - nsCache.lastFetch) < nsCache.ttl) {
                 nsApply(nsCache.data);
                 return;
             }
@@ -19000,7 +19008,7 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
             const data = Object.assign({}, NETWORK_FALLBACK);
 
             try {
-                const h = await nsFetch(API_BASE_NS + '/health', 8000);
+                const h = await nsFetch(API_BASE_NS + '/health', 30000);
                 const bc = h && h.blockchain;
                 if (bc) {
                     if (bc.blocks !== undefined)       data.blocks = Number(bc.blocks);
@@ -19015,7 +19023,8 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
                     }
                 }
             } catch (e) { console.warn('⚠️ /health:', e.message); }
-
+                 nsLastFailure = Date.now();
+        
             try {
                 const s = await nsFetch(API_BASE_NS + '/api/explorer/stats', 6000);
                 const d = (s && (s.data || s)) || {};
@@ -19059,7 +19068,7 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
 
         function nsBoot() {
             nsLoad(false);
-            setInterval(() => nsLoad(true), 30000);
+            setInterval(() => nsLoad(true), 60000);
         }
 
         if (document.readyState === 'loading') {
