@@ -17937,12 +17937,6 @@ document.getElementById('refreshBalanceBtn')?.addEventListener('click', () => {
                 }, 180000);
             }, 10000);  // ⏱️ espera 10s para não competir com o boot
 
-            // Só quando painel visível
-            safeInterval(() => {
-                if (panelVisible('tokenListPanel')) loadTokenList(true);
-                if (panelVisible('nftListPanel'))   loadNFTList(true);
-            }, 180000);
-
             // CARTEIRA SALVA
             const saved = localStorage.getItem('bradicoin_last_wallet');
             if (saved) {
