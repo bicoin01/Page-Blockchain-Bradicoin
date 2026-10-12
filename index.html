@@ -16764,26 +16764,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 const health = healthRes.value;
                 console.log('✅ Health:', health);
 
-                const blockHeightEl = document.getElementById('blockHeightValue');
-                if (blockHeightEl && health.blockchain?.blocks !== undefined) {
-                    blockHeightEl.textContent = health.blockchain.blocks.toLocaleString();
-                }
-                const statTotalBlocks = document.getElementById('statTotalBlocks');
-                if (statTotalBlocks && health.blockchain?.blocks !== undefined) {
-                    statTotalBlocks.textContent = health.blockchain.blocks.toLocaleString();
-                }
-                const pendingEl = document.getElementById('pendingValue');
-                if (pendingEl && health.blockchain?.pending !== undefined) {
-                    pendingEl.textContent = health.blockchain.pending;
-                }
-                const statPendingTX = document.getElementById('statPendingTX');
-                if (statPendingTX && health.blockchain?.pending !== undefined) {
-                    statPendingTX.textContent = health.blockchain.pending;
-                }
-                const validEl = document.getElementById('blockchainValid');
-                if (validEl) {
-                    validEl.textContent = health.blockchain?.isValid ? 'Blockchain Valid' : '⚠️ Inválida';
-                }
+                // ✅ blockHeightValue e statTotalBlocks agora são do /api/network/stats
             } else {
                 console.warn('⚠️ Health falhou:', healthRes.reason?.message);
             }
@@ -16792,59 +16773,20 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
             if (priceRes.status === 'fulfilled') {
                 try {
                     const p = priceRes.value.data;
-
-                    const currentPriceEl = document.getElementById('currentPriceValue');
-                    const basePriceEl = document.getElementById('basePriceValue');
-
-                    if (currentPriceEl) currentPriceEl.textContent = '$' + p.price.toFixed(2);
-                    if (basePriceEl) basePriceEl.textContent = '$' + p.basePrice.toFixed(2);
-
-                    const circulating = 847392000;
-                    const realMC = p.price * circulating;
-                    const dilutedMC = p.price * 79000000000000;
-                    const maxPrice = p.maxPrice || p.price * 1.5;
-                    const targetMC = maxPrice * 79000000000000;
-
-                    function formatMC(value) {
-                        if (value >= 1e15) return '$' + (value / 1e15).toFixed(2) + 'Q';
-                        if (value >= 1e12) return '$' + (value / 1e12).toFixed(2) + 'T';
-                        if (value >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
-                        if (value >= 1e6) return '$' + (value / 1e6).toFixed(2) + 'M';
-                        return '$' + value.toFixed(2);
-                    }
-
-                    const realMCEl = document.getElementById('realMarketCapValue');
-                    const dilutedMCEL = document.getElementById('dilutedMCValue');
-                    const targetMCEL = document.getElementById('targetMCValue');
-
-                    if (realMCEl) realMCEl.textContent = formatMC(realMC);
-                    if (dilutedMCEL) dilutedMCEL.textContent = formatMC(dilutedMC);
-                    if (targetMCEL) targetMCEL.textContent = formatMC(targetMC);
-
-                    const variation = p.variation24h || 0;
-                    if (currentPriceEl && variation !== 0) {
-                        const arrow = variation >= 0 ? '▲' : '▼';
-                        const color = variation >= 0 ? '#00ff66' : '#ff6464';
-                        currentPriceEl.innerHTML = `$${p.price.toFixed(2)} <span style="font-size:11px;color:${color};">${arrow} ${Math.abs(variation).toFixed(2)}%</span>`;
-                    }
-
-                    console.log(`💰 Preço: $${p.price.toFixed(2)} | Base: $${p.basePrice.toFixed(2)} | Var24h: ${variation}%`);
-                } catch (priceErr) {
-                    console.warn('⚠️ Preço não processado:', priceErr.message);
-                }
-            } else {
-                console.warn('⚠️ Preço falhou:', priceRes.reason?.message);
-            }
+                    console.log(`💰 Preço: $${p.price.toFixed(2)} | Base: $${p.basePrice.toFixed(2)} | Var24h: ${p.variation24h || 0}%`);
+           } catch (priceErr) {
+               console.warn('⚠️ Preço não processado:', priceErr.message);
+        }
+    } else {
+        console.warn('⚠️ Preço falhou:', priceRes.reason?.message);
+    }
 
             // ---------- VALIDADORES ----------
             if (validatorsRes.status === 'fulfilled') {
                 try {
                     const validators = validatorsRes.value;
                     const count = Array.isArray(validators.data) ? validators.data.length : 0;
-                    const validatorsEl = document.getElementById('validatorsValue');
-                    if (validatorsEl) validatorsEl.textContent = count;
-                    const countEl = document.getElementById('validatorCount');
-                    if (countEl) countEl.textContent = count + ' Active';
+                    console.log(`🛡️ Validators: ${count}`);
                 } catch (_) {}
             } else {
                 console.warn('⚠️ Validators falhou:', validatorsRes.reason?.message);
@@ -17245,20 +17187,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
 
         const API_BASE_NS = 'https://bradicoin-api.onrender.com';
 
-        const NETWORK_FALLBACK = {
-            blocks: 1284592, blocksPerMin: 4.2, avgBlockTime: 14.3,
-            nodesOnline: 2847, validators: 128, networkHealth: 99.8,
-            decentralization: 92.4, tps: 1247, avgConfirmation: 6.2,
-            avgFee: 0.15, volume24h: 2400000000, feesToday: 18700000,
-            pending: 342, activeWallets: 1284592, newToday: 2847,
-            inStaking: 847392, topHolders: 1284, totalSupply: 79000000000000,
-            circulating: 847392000, locked: 128000000, staked: 24608000,
-            burned: 2847000, deflation: 0.28, basePrice: 10.00,
-            currentPrice: 12.47, priceSupport: 10.00,
-            realMarketCap: 790000000000000, dilutedMC: 790000000000000,
-            targetMC: 1.2e15, buybackActive: true, stabilityFund: 2500000000,
-            boughtToday: 15800000, burnedToday: 8500000, totalTX: 47392184
-        };
+        const NETWORK_FALLBACK = null;
 
         let nsCache = { data: null, lastFetch: 0, ttl: 30000 };
         let nsLastFailure = 0;
@@ -17287,119 +17216,135 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
             ]);
         }
 
-        function nsApply(d) {
-            nsSet('blockHeightValue', Number(d.blocks).toLocaleString('en-US'));
-            nsSet('blocksPerMinValue', Number(d.blocksPerMin).toFixed(1));
-            nsSet('avgBlockTimeValue', Number(d.avgBlockTime).toFixed(1) + 's');
-            nsSet('nodesOnlineValue', Number(d.nodesOnline).toLocaleString('en-US'));
-            nsSet('validatorsValue', Number(d.validators).toLocaleString('en-US'));
-            nsSet('networkHealthValue', Number(d.networkHealth).toFixed(1) + '%');
-            nsSet('decentralizationValue', Number(d.decentralization).toFixed(1) + '%');
-            nsSet('tpsValue', Number(d.tps).toLocaleString('en-US'));
-            nsSet('avgConfirmationValue', Number(d.avgConfirmation).toFixed(1) + 's');
-            nsSet('avgFeeValue', '$' + Number(d.avgFee).toFixed(2));
-            nsSet('volume24hValue', nsFormatBig(d.volume24h, '$'));
-            nsSet('feesTodayValue', nsFormatBig(d.feesToday, '$'));
-            nsSet('pendingValue', Number(d.pending).toLocaleString('en-US'));
-            nsSet('activeWalletsValue', Number(d.activeWallets).toLocaleString('en-US'));
-            nsSet('newTodayValue', Number(d.newToday).toLocaleString('en-US'));
-            nsSet('inStakingValue', Number(d.inStaking).toLocaleString('en-US'));
-            nsSet('topHoldersValue', Number(d.topHolders).toLocaleString('en-US'));
-            nsSet('totalValue', Number(d.totalSupply).toLocaleString('en-US'));
-            nsSet('circulatingValue', Number(d.circulating).toLocaleString('en-US'));
-            nsSet('lockedValue', Number(d.locked).toLocaleString('en-US'));
-            nsSet('stakedValue', Number(d.staked).toLocaleString('en-US'));
-            nsSet('burnedValue', Number(d.burned).toLocaleString('en-US'));
-            nsSet('deflationValue', Number(d.deflation).toFixed(2) + '%');
-            nsSet('basePriceValue', '$' + Number(d.basePrice).toFixed(2));
-            nsSet('currentPriceValue', '$' + Number(d.currentPrice).toFixed(2));
-            nsSet('priceSupportValue', '$' + Number(d.priceSupport).toFixed(2));
-            nsSet('realMarketCapValue', nsFormatBig(d.realMarketCap, '$'));
-            nsSet('dilutedMCValue', nsFormatBig(d.dilutedMC, '$'));
-            nsSet('targetMCValue', nsFormatBig(d.targetMC, '$'));
-            nsSet('buybackActiveValue', d.buybackActive ? '✅ Yes' : '❌ No');
-            nsSet('stabilityFundValue', nsFormatBig(d.stabilityFund, '$'));
-            nsSet('boughtTodayValue', nsFormatBig(d.boughtToday) + ' BRD');
-            nsSet('burnedTodayValue', nsFormatBig(d.burnedToday) + ' BRD');
-            nsSet('statPendingTX', Number(d.pending).toLocaleString('en-US'));
-            nsSet('statBlocksPerMin', Number(d.blocksPerMin).toFixed(1));
-            nsSet('statTotalBlocks', Number(d.blocks).toLocaleString('en-US'));
-            nsSet('statTotalTX', Number(d.totalTX || d.blocks * 37).toLocaleString('en-US'));
-        }
+     function nsApply(d) {
+    const safe = (v, fmt) => {
+        if (v === undefined || v === null || v === 0) return '--';
+        return typeof fmt === 'function' ? fmt(v) : v;
+    };
+
+    nsSet('blockHeightValue', safe(d.blocks, v => Number(v).toLocaleString('en-US')));
+    nsSet('blocksPerMinValue', safe(d.blocksPerMin, v => Number(v).toFixed(1)));
+    nsSet('avgBlockTimeValue', safe(d.avgBlockTime, v => Number(v).toFixed(1) + 's'));
+    nsSet('nodesOnlineValue', safe(d.nodesOnline, v => Number(v).toLocaleString('en-US')));
+    nsSet('validatorsValue', safe(d.validators, v => Number(v).toLocaleString('en-US')));
+    nsSet('networkHealthValue', safe(d.networkHealth, v => Number(v).toFixed(1) + '%'));
+    nsSet('decentralizationValue', safe(d.decentralization, v => Number(v).toFixed(1) + '%'));
+    nsSet('tpsValue', safe(d.tps, v => Number(v).toFixed(2)));
+    nsSet('avgConfirmationValue', safe(d.avgConfirmation, v => Number(v).toFixed(1) + 's'));
+    nsSet('avgFeeValue', safe(d.avgFee, v => '$' + Number(v).toFixed(4)));
+    nsSet('volume24hValue', safe(d.volume24h, v => nsFormatBig(v, '$')));
+    nsSet('feesTodayValue', safe(d.feesToday, v => nsFormatBig(v, '$')));
+    nsSet('pendingValue', safe(d.pending, v => Number(v).toLocaleString('en-US')));
+    nsSet('activeWalletsValue', safe(d.activeWallets, v => Number(v).toLocaleString('en-US')));
+    nsSet('newTodayValue', safe(d.newToday, v => Number(v).toLocaleString('en-US')));
+    nsSet('inStakingValue', safe(d.inStaking, v => Number(v).toLocaleString('en-US')));
+    nsSet('topHoldersValue', safe(d.topHolders, v => Number(v).toLocaleString('en-US')));
+    nsSet('totalValue', safe(d.totalSupply, v => Number(v).toLocaleString('en-US')));
+    nsSet('circulatingValue', safe(d.circulating, v => Number(v).toLocaleString('en-US')));
+    nsSet('lockedValue', safe(d.locked, v => Number(v).toLocaleString('en-US')));
+    nsSet('stakedValue', safe(d.staked, v => Number(v).toLocaleString('en-US')));
+    nsSet('burnedValue', safe(d.burned, v => Number(v).toLocaleString('en-US')));
+    nsSet('deflationValue', safe(d.deflation, v => Number(v).toFixed(2) + '%'));
+    nsSet('basePriceValue', safe(d.basePrice, v => '$' + Number(v).toFixed(2)));
+    nsSet('currentPriceValue', safe(d.currentPrice, v => '$' + Number(v).toFixed(2)));
+    nsSet('priceSupportValue', safe(d.priceSupport, v => '$' + Number(v).toFixed(2)));
+    nsSet('realMarketCapValue', safe(d.realMarketCap, v => nsFormatBig(v, '$')));
+    nsSet('dilutedMCValue', safe(d.dilutedMC, v => nsFormatBig(v, '$')));
+    nsSet('targetMCValue', safe(d.targetMC, v => nsFormatBig(v, '$')));
+    const buybackEl = document.getElementById('buybackActiveValue');
+    if (buybackEl) {
+        buybackEl.textContent = d.buybackActive === true ? '✅ Yes' : '--';
+        buybackEl.style.color = d.buybackActive === true ? '#00ff66' : '#666';
+    }
+    nsSet('stabilityFundValue', safe(d.stabilityFund, v => nsFormatBig(v, '$')));
+    nsSet('boughtTodayValue', safe(d.boughtToday, v => nsFormatBig(v) + ' BRD'));
+    nsSet('burnedTodayValue', safe(d.burnedToday, v => nsFormatBig(v) + ' BRD'));
+    nsSet('statPendingTX', safe(d.pending, v => Number(v).toLocaleString('en-US')));
+    nsSet('statBlocksPerMin', safe(d.blocksPerMin, v => Number(v).toFixed(1)));
+    nsSet('statTotalBlocks', safe(d.blocks, v => Number(v).toLocaleString('en-US')));
+    nsSet('statTotalTX', safe(d.totalTX, v => Number(v).toLocaleString('en-US')));
+}   
 
         async function nsLoad(force) {
             const now = Date.now();
 
-            if (!force && nsLastFailure && (now - nsLastFailure) < NS_RETRY_COOLDOWN) {
-                console.warn('⏸️ API offline recentemente, aguardando cooldown');
-                return;
-            }
+    if (!force && nsLastFailure && (now - nsLastFailure) < NS_RETRY_COOLDOWN) {
+        console.warn('⏸️ API offline recentemente, aguardando cooldown');
+        return;
+    }
 
-            if (!force && nsCache.data && (now - nsCache.lastFetch) < nsCache.ttl) {
-                nsApply(nsCache.data);
-                return;
-            }
+    if (!force && nsCache.data && (now - nsCache.lastFetch) < nsCache.ttl) {
+        nsApply(nsCache.data);
+        return;
+    }
 
-            const data = Object.assign({}, NETWORK_FALLBACK);
+    try {
+        
+        const res = await nsFetch(API_BASE_NS + '/api/network/stats', 15000);
+        const raw = (res && (res.data || res)) || null;
 
-            try {
-                const h = await nsFetch(API_BASE_NS + '/health', 30000);
-                const bc = h && h.blockchain;
-                if (bc) {
-                    if (bc.blocks !== undefined)       data.blocks = Number(bc.blocks);
-                    if (bc.pending !== undefined)      data.pending = Number(bc.pending);
-                    if (bc.avgBlockTime !== undefined) data.avgBlockTime = Number(bc.avgBlockTime);
-                    if (bc.isValid !== undefined) {
-                        const v = document.getElementById('blockchainValid');
-                        if (v) {
-                            v.textContent = bc.isValid ? 'Blockchain Valid' : '⚠️ Invalid';
-                            v.style.color = bc.isValid ? '#00ff66' : '#ff6464';
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn('⚠️ /health:', e.message);
-                nsLastFailure = Date.now();
-            }
-
-            try {
-                const s = await nsFetch(API_BASE_NS + '/api/explorer/stats', 6000);
-                const d = (s && (s.data || s)) || {};
-                if (d.tps !== undefined)               data.tps = Number(d.tps);
-                if (d.totalTransactions !== undefined) data.totalTX = Number(d.totalTransactions);
-                if (d.activeWallets !== undefined)     data.activeWallets = Number(d.activeWallets);
-                if (d.volume24h !== undefined)         data.volume24h = Number(d.volume24h);
-                if (d.avgFee !== undefined)            data.avgFee = Number(d.avgFee);
-                if (d.nodesOnline !== undefined)       data.nodesOnline = Number(d.nodesOnline);
-                if (d.validators !== undefined)        data.validators = Number(d.validators);
-            } catch (e) {}
-
-            try {
-                const p = await nsFetch(API_BASE_NS + '/api/market/price', 6000);
-                const d = (p && (p.data || p)) || {};
-                if (d.price)        data.currentPrice = Number(d.price);
-                if (d.basePrice)    data.basePrice = Number(d.basePrice);
-                if (d.priceSupport) data.priceSupport = Number(d.priceSupport);
-                if (d.price) {
-                    data.realMarketCap = d.price * data.circulating;
-                    data.dilutedMC = d.price * data.totalSupply;
-                    data.targetMC = (d.maxPrice || d.price * 1.5) * data.totalSupply;
-                }
-            } catch (e) {}
-
-            try {
-                const st = await nsFetch(API_BASE_NS + '/api/staking/stats', 6000);
-                const d = (st && (st.data || st)) || {};
-                if (d.totalStaked !== undefined) {
-                    data.staked = Number(d.totalStaked);
-                    data.inStaking = Number(d.totalStaked);
-                }
-            } catch (e) {}
-
-            nsCache.data = data;
-            nsCache.lastFetch = now;
-            nsApply(data);
+        if (!raw || raw.blockHeight === undefined) {
+            throw new Error('Resposta sem dados');
         }
+
+        const d = {
+            blocks: raw.blockHeight || 0,
+            blocksPerMin: raw.blocksPerMin || 0,
+            avgBlockTime: raw.avgBlockTime || 0,
+            nodesOnline: raw.nodesOnline || 1,
+            validators: raw.validators || 0,
+            networkHealth: raw.networkHealth || 0,
+            decentralization: raw.decentralization || 0,
+            tps: raw.tps || 0,
+            avgConfirmation: raw.avgConfirmation || 0,
+            avgFee: raw.avgFee || 0,
+            volume24h: raw.volume24h || 0,
+            feesToday: raw.feesToday || 0,
+            pending: raw.pending || 0,
+            activeWallets: raw.activeWallets || 0,
+            newToday: raw.newToday || 0,
+            inStaking: raw.inStaking || 0,
+            topHolders: raw.topHolders || 0,
+            totalSupply: raw.total || 0,
+            circulating: raw.circulating || 0,
+            locked: raw.locked || 0,
+            staked: raw.staked || 0,
+            burned: raw.burned || 0,
+            deflation: raw.deflation || 0,
+            basePrice: raw.basePrice || 0,
+            currentPrice: raw.currentPrice || 0,
+            priceSupport: raw.priceSupport || 0,
+            realMarketCap: raw.realMarketCap || 0,
+            dilutedMC: raw.dilutedMC || 0,
+            targetMC: raw.targetMC || 0,
+            buybackActive: raw.buybackActive === true,
+            stabilityFund: raw.stabilityFund || 0,
+            boughtToday: raw.boughtToday || 0,
+            burnedToday: raw.burnedToday || 0,
+            totalTX: raw.totalTX || 0
+        };
+
+        const validEl = document.getElementById('blockchainValid');
+        if (validEl) {
+            if (raw.isValid === false) {
+                validEl.textContent = '⚠️ Invalid';
+                validEl.style.color = '#ff6464';
+            } else {
+                validEl.textContent = 'Blockchain Valid';
+                validEl.style.color = '#00ff66';
+            }
+        }
+
+        nsCache.data = d;
+        nsCache.lastFetch = now;
+        nsApply(d);
+
+    } catch (e) {
+        console.warn('⚠️ /api/network/stats:', e.message);
+        nsLastFailure = Date.now();
+        // Não mostra dados fake — só loga no console
+    }
+}
 
         window.loadNetworkStatusReal = nsLoad;
 
