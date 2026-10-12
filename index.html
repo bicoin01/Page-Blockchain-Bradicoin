@@ -5062,13 +5062,13 @@ console.log(balance);</pre>
         async function apiCall(path, options = {}) {
             const controller = new AbortController();
 
-            // ✅ Timeout adaptativo: primeira chamada pode demorar (cold start Render)
+            // ✅ Timeouts reduzidos para não travar a UI
             const isHealthCheck = path === '/health' || path.startsWith('/health');
             const isFirstCall   = !window._apiWarmedUp;
 
-            let TIMEOUT = 10000;
-            if (isHealthCheck) TIMEOUT = 45000;   // health acorda o servidor
-            if (isFirstCall)   TIMEOUT = 45000;   // primeira chamada da sessão
+            let TIMEOUT = 8000;                    // padrão: 8s
+            if (isHealthCheck) TIMEOUT = 15000;   // health: 15s (cold start Render)
+            if (isFirstCall)   TIMEOUT = 15000;   // primeira chamada: 15s
 
             const timeout = setTimeout(() => controller.abort(), TIMEOUT);
 
@@ -5079,7 +5079,7 @@ console.log(balance);</pre>
                     ...options
                 });
 
-                window._apiWarmedUp = true;  // ✅ marca que o backend acordou
+                window._apiWarmedUp = true;
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
                 return data;
@@ -16753,54 +16753,49 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         async function loadRealData() {
             updateApiStatus('checking', '⏳ Conectando à API...');
 
-            const [healthRes, priceRes, validatorsRes] = await Promise.allSettled([
-                apiCall('/health'),
-                apiCall('/api/market/price'),
-                apiCall('/api/validator/list')
-            ]);
+    const healthPromise     = apiCall('/health').catch(e => ({ _error: e }));
+    const pricePromise      = apiCall('/api/market/price').catch(e => ({ _error: e }));
+    const validatorsPromise = apiCall('/api/validator/list').catch(e => ({ _error: e }));
 
-            // ---------- HEALTH ----------
-            if (healthRes.status === 'fulfilled') {
-                const health = healthRes.value;
-                console.log('✅ Health:', health);
-
-                // ✅ blockHeightValue e statTotalBlocks agora são do /api/network/stats
-            } else {
-                console.warn('⚠️ Health falhou:', healthRes.reason?.message);
-            }
-
-            // ---------- PREÇO ----------
-            if (priceRes.status === 'fulfilled') {
-                try {
-                    const p = priceRes.value.data;
-                    console.log(`💰 Preço: $${p.price.toFixed(2)} | Base: $${p.basePrice.toFixed(2)} | Var24h: ${p.variation24h || 0}%`);
-           } catch (priceErr) {
-               console.warn('⚠️ Preço não processado:', priceErr.message);
+    // ---------- HEALTH ----------
+    healthPromise.then(health => {
+        if (health._error) {
+            console.warn('⚠️ Health falhou:', health._error.message);
+            updateApiStatus('offline', '⚠️ API Offline - Tentando novamente...');
+            return;
         }
-    } else {
-        console.warn('⚠️ Preço falhou:', priceRes.reason?.message);
-    }
+        console.log('✅ Health:', health);
+        updateApiStatus('online', '✅ API Online - Conectado à Bradicoin Blockchain');
+        console.log('✅ Dados reais carregados com sucesso!');
+    });
 
-            // ---------- VALIDADORES ----------
-            if (validatorsRes.status === 'fulfilled') {
-                try {
-                    const validators = validatorsRes.value;
-                    const count = Array.isArray(validators.data) ? validators.data.length : 0;
-                    console.log(`🛡️ Validators: ${count}`);
-                } catch (_) {}
-            } else {
-                console.warn('⚠️ Validators falhou:', validatorsRes.reason?.message);
-            }
-
-            // ---------- STATUS FINAL ----------
-            if (healthRes.status === 'fulfilled') {
-                updateApiStatus('online', '✅ API Online - Conectado à Bradicoin Blockchain');
-                console.log('✅ Dados reais carregados com sucesso!');
-            } else {
-                updateApiStatus('offline', '⚠️ API Offline - Usando dados de demonstração');
-            }
+    // ---------- PREÇO ----------
+    pricePromise.then(res => {
+        if (res._error) {
+            console.warn('⚠️ Preço falhou:', res._error.message);
+            return;
         }
+        try {
+            const p = res.data;
+            console.log(`💰 Preço: $${p.price.toFixed(2)} | Base: $${p.basePrice.toFixed(2)} | Var24h: ${p.variation24h || 0}%`);
+        } catch (priceErr) {
+            console.warn('⚠️ Preço não processado:', priceErr.message);
+        }
+    });
 
+    // ---------- VALIDADORES ----------
+    validatorsPromise.then(res => {
+        if (res._error) {
+            console.warn('⚠️ Validators falhou:', res._error.message);
+            return;
+        }
+        try {
+            const validators = res;
+            const count = Array.isArray(validators.data) ? validators.data.length : 0;
+            console.log(`🛡️ Validators: ${count}`);
+        } catch (_) {}
+    });
+}
                    // ============================================
         // INICIALIZAÇÃO
         // ============================================
@@ -17348,16 +17343,27 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
 
         window.loadNetworkStatusReal = nsLoad;
 
-        function nsBoot() {
-            nsLoad(false);
-            setInterval(() => nsLoad(true), 60000);
-        }
+     function nsBoot() {
+          nsLoad(true);
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', nsBoot);
-        } else {
-            nsBoot();
-        }
+          setTimeout(() => nsLoad(true), 3000);
+
+          setTimeout(() => nsLoad(true), 8000);
+
+          setInterval(() => nsLoad(true), 60000);
+     }
+
+     if (document.readyState === 'loading') {
+         document.addEventListener('DOMContentLoaded', nsBoot);
+     } else {
+         nsBoot();
+     }
+
+     document.addEventListener('visibilitychange', () => {
+         if (document.visibilityState === 'visible') {
+             nsLoad(true);
+         }
+      });   
     })();
     </script>
 </body>
