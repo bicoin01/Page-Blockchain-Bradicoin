@@ -16344,266 +16344,302 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         // SEARCH WALLET / TOKEN / TX - REAL (v2)
         // ============================================
         async function searchWallet() {
-            const input = document.getElementById('searchInput');
-            const query = input?.value.trim();
-            const result = document.getElementById('searchResult');
-            const t = translations[currentLang] || translations.en;
+    const input = document.getElementById('searchInput');
+    const query = input?.value.trim();
+    const result = document.getElementById('searchResult');
+    const t = translations[currentLang] || translations.en;
 
-            if (!query) {
-                showNotification('⚠️ Please enter an address or token symbol', '#ff6464');
-                return;
-            }
-            if (!result) return;
+    if (!query) {
+        showNotification('⚠️ ' + (t.invalidAddress || 'Please enter an address or token symbol'), '#ff6464');
+        return;
+    }
+    if (!result) return;
 
-            // Reset visual
-            result.className = 'result-box show';
-            result.style.display = 'block';
+    // Reset visual
+    result.className = 'result-box show';
+    result.style.display = 'block';
+    result.innerHTML = `
+        <div style="text-align:center;padding:24px;">
+            <div style="font-size:28px;margin-bottom:8px;">⏳</div>
+            <div style="color:#00ccff;font-size:13px;">${t.loading || 'Searching blockchain...'}</div>
+        </div>`;
+    input?.classList.remove('error', 'found');
+
+    // ────────────────────────────────────────────
+    // Helper: exibe mensagem "Wallet ou token não encontrado"
+    // ────────────────────────────────────────────
+    const showNotFound = (term) => {
+        input?.classList.add('error');
+        result.className = 'result-box show not-found';
+        result.innerHTML = `
+            <div style="text-align:center;padding:24px;">
+                <div class="error-icon">🔍</div>
+                <div class="error-title">${t.walletOrTokenNotFound || 'Wallet ou token não encontrado'}</div>
+                <div class="error-message">
+                    ${t.walletOrTokenNotFoundMsg || 'A carteira ou token buscado não foi encontrado na blockchain Bradicoin.'}
+                    <br><code style="color:#ffc800;word-break:break-all;">${term}</code>
+                </div>
+                <div class="error-tip">
+                    ${t.walletOrTokenNotFoundTip || '💡 Verifique se o endereço está correto (deve começar com "Br") ou tente um símbolo válido.'}
+                </div>
+                <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
+                    <button class="error-clear-btn" onclick="clearSearch()">✕ Clear</button>
+                    <button class="error-clear-btn" style="border-color:#00ccff;color:#00ccff;"
+                        onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">
+                        🔍 Explorer
+                    </button>
+                </div>
+            </div>
+        `;
+        showNotification('❌ ' + (t.walletOrTokenNotFound || 'Não encontrado'), '#ff6464');
+    };
+
+    // ────────────────────────────────────────────
+    // Helper: extrai o objeto real da resposta (qualquer formato)
+    // ────────────────────────────────────────────
+    const extractPayload = (res) => {
+        if (!res) return null;
+        if (res.data && typeof res.data === 'object') return res.data;
+        if (res.wallet && typeof res.wallet === 'object') return res.wallet;
+        if (res.result && typeof res.result === 'object') return res.result;
+        return res;
+    };
+
+    // ============================================
+    // 1. WALLET (começa com "Br")
+    // ============================================
+    if (query.startsWith('Br') && query.length >= 6) {
+        try {
+            const raw = await apiCall('/api/wallet/balance/' + encodeURIComponent(query));
+            const w = extractPayload(raw);
+
+            // Aceita vários formatos de resposta
+            const hasData = w && (
+                w.balance !== undefined ||
+                w.address !== undefined ||
+                w.balances !== undefined
+            );
+
+            if (!hasData) throw new Error('empty');
+
+            // Normaliza os campos (aceita camelCase e snake_case)
+            const address   = w.address || w.walletAddress || w.wallet || query;
+            const balance   = Number(w.balance ?? w.amount ?? w.confirmed ?? 0);
+            const pending   = Number(w.pending ?? w.unconfirmed ?? 0);
+            const total     = Number(w.total ?? (balance + pending));
+            const staked    = Number(w.staked ?? w.stake ?? 0);
+            const txs       = Number(w.transactions ?? w.txCount ?? w.tx_count ?? 0);
+            const isActive  = balance > 0 || txs > 0;
+
+            input?.classList.add('found');
+            result.className = 'result-box show found';
             result.innerHTML = `
-                <div style="text-align:center;padding:24px;">
-                    <div style="font-size:28px;margin-bottom:8px;">⏳</div>
-                    <div style="color:#00ccff;font-size:13px;">Searching blockchain...</div>
-                </div>`;
-            input?.classList.remove('error', 'found');
-
-            // ============================================
-            // 1. ENDEREÇO DE WALLET (começa com "Br")
-            // ============================================
-            if (query.startsWith('Br') && query.length >= 6) {
-                try {
-                    const data = await apiCall('/api/wallet/balance/' + encodeURIComponent(query));
-                    const w = data.data || data;
-
-                    if (!w || (w.balance === undefined && !w.address)) {
-                        throw new Error('Wallet not found');
-                    }
-
-                    input?.classList.add('found');
-                    result.className = 'result-box show found';
-                    result.innerHTML = `
-                        <div class="result-header">
-                            <span class="result-address">${w.address || query}</span>
-                            <button class="result-copy-btn" onclick="copyToClipboard('${w.address || query}')">📋 Copy</button>
-                        </div>
-                        <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                        ✅ ${t.walletFoundTitle || 'WALLET FOUND'}
-                        </div>
-                        <div class="result-grid">
-                            <div class="result-item"><div class="result-item-label">Balance</div><div class="result-item-value green">${Number(w.balance || 0).toFixed(2)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Pending</div><div class="result-item-value yellow">${Number(w.pending || 0).toFixed(2)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Total</div><div class="result-item-value cyan">${Number(w.total || w.balance || 0).toFixed(2)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Staked</div><div class="result-item-value magenta">${Number(w.staked || 0).toFixed(2)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Transactions</div><div class="result-item-value cyan">${Number(w.transactions || 0)}</div></div>
-                            <div class="result-item"><div class="result-item-label">Status</div><div class="result-item-value green">✅ Active</div></div>
-                        </div>
-                        <div class="result-actions">
-                            <button class="result-action-btn" onclick="viewHistory('${w.address || query}')">📜 History</button>
-                            <button class="result-action-btn" onclick="copyToClipboard('${w.address || query}')">📋 Copy Address</button>
-                            <button class="result-action-btn" onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">🔍 Explorer</button>
-                        </div>
-                        <div class="last-updated"><span>Updated: ${new Date().toLocaleString()}</span></div>
-                    `;
-
-                    try {
-                        localStorage.setItem('bradicoin_last_wallet', JSON.stringify({
-                            address: w.address || query,
-                            username: w.username || 'user'
-                        }));
-                    } catch (_) {}
-
-                    showNotification('✅ Wallet found!', '#00ff66');
-                    return;
-                } catch (err) {
-                    input?.classList.add('error');
-                    result.className = 'result-box show not-found';
-                    result.innerHTML = `
-                        <div style="text-align:center;padding:24px;">
-                            <div class="error-icon">🔍</div>
-                            <div class="error-title">${t.walletNotFoundTitle || 'Wallet Not Found'}</div>
-                            <div class="error-message">
-                                ${t.walletNotFoundMessage || 'The address was not found on the Bradicoin blockchain.'}
-                                <br><code style="color:#ffc800;word-break:break-all;">${query}</code>
-                            </div>
-                            <div class="error-tip">
-                                💡 Make sure the address is correct and starts with "Br".
-                                <br>Wallets are created in the Bradicoin mobile app.
-                            </div>
-                            <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
-                                <button class="error-clear-btn" onclick="clearSearch()">✕ Clear</button>
-                                <button class="error-clear-btn" style="border-color:#00ccff;color:#00ccff;"
-                                    onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">
-                                    🔍 Open Explorer
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    showNotification('❌ Wallet not found', '#ff6464');
-                    return;
-                }
-            }
-
-            // ============================================
-            // 2. HASH DE TRANSAÇÃO (0x... ou hex longo)
-            // ============================================
-            if (/^(0x)?[a-fA-F0-9]{16,}$/.test(query)) {
-                try {
-                    const data = await apiCall('/api/transaction/' + encodeURIComponent(query));
-                    const tx = data.data || data;
-
-                    if (!tx || !tx.hash) throw new Error('Transaction not found');
-
-                    input?.classList.add('found');
-                    result.className = 'result-box show found';
-                    result.innerHTML = `
-                        <div class="result-header">
-                            <span class="result-address">${tx.hash}</span>
-                            <button class="result-copy-btn" onclick="copyToClipboard('${tx.hash}')">📋 Copy</button>
-                        </div>
-                        <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                            ✅ ${t.transactionFoundTitle || 'TRANSACTION FOUND'}
-                        </div>
-                        <div class="result-grid">
-                            <div class="result-item"><div class="result-item-label">From</div><div class="result-item-value cyan">${(tx.fromAddress || 'COINBASE').slice(0,20)}...</div></div>
-                            <div class="result-item"><div class="result-item-label">To</div><div class="result-item-value magenta">${(tx.toAddress || 'N/A').slice(0,20)}...</div></div>
-                            <div class="result-item"><div class="result-item-label">Amount</div><div class="result-item-value green">${Number(tx.amount || 0).toFixed(2)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Status</div><div class="result-item-value ${tx.confirmed !== false ? 'green' : 'yellow'}">${tx.confirmed !== false ? '✅ Confirmed' : '⏳ Pending'}</div></div>
-                            <div class="result-item"><div class="result-item-label">Fee</div><div class="result-item-value yellow">${Number(tx.fee || 0).toFixed(4)} BRD</div></div>
-                            <div class="result-item"><div class="result-item-label">Time</div><div class="result-item-value cyan">${tx.timestamp ? new Date(tx.timestamp).toLocaleString() : '--'}</div></div>
-                        </div>
-                    `;
-                    showNotification('✅ Transaction found!', '#00ff66');
-                    return;
-                } catch (err) {
-                    input?.classList.add('error');
-                    result.className = 'result-box show not-found';
-                    result.innerHTML = `
-                        <div style="text-align:center;padding:24px;">
-                            <div class="error-icon">🔍</div>
-                            <div class="error-title">${t.walletNotFoundTitle || 'Transaction Not Found'}</div>
-                            <div class="error-message">
-                                Transaction hash <code style="color:#ffc800;">${query.slice(0,20)}...</code>
-                                was not found on the Bradicoin blockchain.
-                            </div>
-                            <button class="error-clear-btn" onclick="clearSearch()" style="margin-top:14px;">✕ Clear</button>
-                        </div>
-                    `;
-                    showNotification('❌ Transaction not found', '#ff6464');
-                    return;
-                }
-            }
-
-            // ============================================
-            // 3. SÍMBOLO DE TOKEN (BTC, ETH, BRD, QTM...)
-            // ============================================
-            if (/^[A-Za-z0-9]{1,10}$/.test(query)) {
-                try {
-                    let token = null;
-
-                    if (typeof tokensCache !== 'undefined' && tokensCache.data && tokensCache.data.length > 0) {
-                        token = tokensCache.data.find(tk =>
-                            (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
-                            (tk.name || '').toLowerCase() === query.toLowerCase()
-                        );
-                    }
-
-                    if (!token) {
-                        try {
-                            const data = await apiCall('/api/v1/token/list');
-                            const list = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
-                            token = list.find(tk =>
-                                (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
-                                (tk.name || '').toLowerCase() === query.toLowerCase()
-                            );
-                        } catch (_) {}
-                    }
-
-                    if (!token) {
-                        const known = {
-                            BRD: { name: 'Bradicoin', symbol: 'BRD', price: 12.47, supply: 1000000000, emoji: '⚡' },
-                            BTC: { name: 'Bitcoin', symbol: 'BTC', price: 68000, supply: 21000000, emoji: '₿' },
-                            ETH: { name: 'Ethereum', symbol: 'ETH', price: 3500, supply: 120000000, emoji: 'Ξ' },
-                            QTM: { name: 'Quantum Token', symbol: 'QTM', price: 2.50, supply: 500000000, emoji: '⚛️' },
-                            ZKT: { name: 'ZK-SNARK', symbol: 'ZKT', price: 5.00, supply: 100000000, emoji: '🔐' },
-                            AIP: { name: 'AI Protocol', symbol: 'AIP', price: 1.20, supply: 250000000, emoji: '🤖' }
-                        };
-                        token = known[query.toUpperCase()] || null;
-                    }
-
-                    if (token) {
-                        const price = Number(token.price || 0);
-                        const supply = Number(token.supply || token.totalSupply || 0);
-
-                        input?.classList.add('found');
-                        result.className = 'result-box show found';
-                        result.innerHTML = `
-                            <div class="result-header">
-                                <span style="display:flex;align-items:center;gap:10px;">
-                                    <span style="font-size:28px;">${token.emoji || '🪙'}</span>
-                                    <span style="color:#ffc800;font-size:18px;font-weight:bold;">${token.name || token.symbol}</span>
-                                </span>
-                                <button class="result-copy-btn" onclick="copyToClipboard('${token.symbol}')">📋 Copy Symbol</button>
-                            </div>
-                            <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                               ✅ ${t.tokenFoundTitle || 'TOKEN FOUND'}
-                            </div>
-                            <div class="result-grid">
-                                <div class="result-item"><div class="result-item-label">Symbol</div><div class="result-item-value yellow">${token.symbol}</div></div>
-                                <div class="result-item"><div class="result-item-label">Price</div><div class="result-item-value green">$${price.toFixed(2)}</div></div>
-                                <div class="result-item"><div class="result-item-label">Total Supply</div><div class="result-item-value cyan">${supply.toLocaleString('en-US')}</div></div>
-                                <div class="result-item"><div class="result-item-label">Market Cap</div><div class="result-item-value magenta">$${(price * supply).toLocaleString('en-US', {maximumFractionDigits:0})}</div></div>
-                            </div>
-                            <div class="result-actions">
-                                <button class="result-action-btn" onclick="copyToClipboard('${token.symbol}')">📋 Copy Symbol</button>
-                                <button class="result-action-btn" onclick="openTokenModal()">🪙 View All Tokens</button>
-                            </div>
-                        `;
-                        showNotification('✅ Token found: ' + token.symbol, '#ffc800');
-                        return;
-                    }
-
-                    input?.classList.add('error');
-                    result.className = 'result-box show not-found';
-                    result.innerHTML = `
-                        <div style="text-align:center;padding:24px;">
-                            <div class="error-icon">🪙</div>
-                            <div class="error-title">${t.tokenNotFoundTitle || 'Token Not Found'}</div>
-                            <div class="error-message">
-                                ${t.tokenNotFoundMessage || 'No token with that symbol was found.'}
-                                <br><code style="color:#ffc800;">${query}</code>
-                            </div>
-                            <div class="error-tip">💡 Try: BRD, BTC, ETH, QTM, ZKT, AIP</div>
-                            <button class="error-clear-btn" onclick="clearSearch()" style="margin-top:14px;">✕ Clear</button>
-                        </div>
-                    `;
-                    showNotification('❌ Token not found', '#ff6464');
-                    return;
-                } catch (err) {
-                    // cai para o erro final abaixo
-                }
-            }
-
-            // ============================================
-            // 4. FORMATO INVÁLIDO
-            // ============================================
-            input?.classList.add('error');
-            result.className = 'result-box show not-found';
-            result.innerHTML = `
-                <div style="text-align:center;padding:24px;">
-                <div class="error-icon">⚠️</div>
-                    <div class="error-title">${t.invalidSearchTitle || 'Invalid Search'}</div>
-                    <div class="error-message">
-                        ${t.invalidSearchMessage || 'Enter a wallet address (Br...), transaction hash or token symbol.'}
-                    <br><code style="color:#ffc800;">${query}</code>
+                <div class="result-header">
+                    <span class="result-address">${address}</span>
+                    <button class="result-copy-btn" onclick="copyToClipboard('${address}')">📋 Copy</button>
+                </div>
+                <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
+                    ✅ ${t.walletFoundTitle || 'WALLET ENCONTRADA'}
+                </div>
+                <div class="result-grid">
+                    <div class="result-item">
+                        <div class="result-item-label">Balance</div>
+                        <div class="result-item-value green">${balance.toFixed(2)} BRD</div>
                     </div>
-                    <div class="error-tip">
-                        💡 Wallet address must start with <b>"Br"</b> (e.g. BrDemo123)<br>
-                        💡 Token symbols: BRD, BTC, ETH, QTM, ZKT, AIP
+                    <div class="result-item">
+                        <div class="result-item-label">Pending</div>
+                        <div class="result-item-value yellow">${pending.toFixed(2)} BRD</div>
                     </div>
-                    <button class="error-clear-btn" onclick="clearSearch()" style="margin-top:14px;">✕ Clear</button>
-             </div>
+                    <div class="result-item">
+                        <div class="result-item-label">Total</div>
+                        <div class="result-item-value cyan">${total.toFixed(2)} BRD</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-item-label">Staked</div>
+                        <div class="result-item-value magenta">${staked.toFixed(2)} BRD</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-item-label">Transactions</div>
+                        <div class="result-item-value cyan">${txs}</div>
+                    </div>
+                    <div class="result-item">
+                        <div class="result-item-label">Status</div>
+                        <div class="result-item-value ${isActive ? 'green' : 'yellow'}">
+                            ${isActive ? '✅ Active' : '⚪ Empty'}
+                        </div>
+                    </div>
+                </div>
+                <div class="result-actions">
+                    <button class="result-action-btn" onclick="viewHistory('${address}')">📜 History</button>
+                    <button class="result-action-btn" onclick="copyToClipboard('${address}')">📋 Copy</button>
+                    <button class="result-action-btn" onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">🔍 Explorer</button>
+                </div>
+                <div class="last-updated"><span>Atualizado: ${new Date().toLocaleString()}</span></div>
             `;
-            showNotification('⚠️ Invalid search', '#ff6464');
-        }
 
+            try {
+                localStorage.setItem('bradicoin_last_wallet', JSON.stringify({
+                    address, username: w.username || 'user'
+                }));
+            } catch (_) {}
+
+            showNotification('✅ ' + (t.walletFoundTitle || 'Wallet encontrada!'), '#00ff66');
+            return;
+
+        } catch (err) {
+            console.warn('Wallet lookup falhou:', err.message);
+            showNotFound(query);
+            return;
+        }
+    }
+
+    // ============================================
+    // 2. HASH DE TRANSAÇÃO
+    // ============================================
+    if (/^(0x)?[a-fA-F0-9]{16,}$/.test(query)) {
+        try {
+            const raw = await apiCall('/api/transaction/' + encodeURIComponent(query));
+            const tx = extractPayload(raw);
+
+            if (!tx || (!tx.hash && !tx.signature)) throw new Error('not found');
+
+            const hash      = tx.hash || tx.signature || query;
+            const from      = tx.fromAddress || tx.from || 'COINBASE';
+            const to        = tx.toAddress || tx.to || 'N/A';
+            const amount    = Number(tx.amount ?? 0);
+            const fee       = Number(tx.fee ?? 0);
+            const confirmed = tx.confirmed !== false;
+
+            input?.classList.add('found');
+            result.className = 'result-box show found';
+            result.innerHTML = `
+                <div class="result-header">
+                    <span class="result-address">${hash}</span>
+                    <button class="result-copy-btn" onclick="copyToClipboard('${hash}')">📋 Copy</button>
+                </div>
+                <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
+                    ✅ ${t.transactionFoundTitle || 'TRANSAÇÃO ENCONTRADA'}
+                </div>
+                <div class="result-grid">
+                    <div class="result-item"><div class="result-item-label">From</div><div class="result-item-value cyan">${String(from).slice(0,20)}...</div></div>
+                    <div class="result-item"><div class="result-item-label">To</div><div class="result-item-value magenta">${String(to).slice(0,20)}...</div></div>
+                    <div class="result-item"><div class="result-item-label">Amount</div><div class="result-item-value green">${amount.toFixed(2)} BRD</div></div>
+                    <div class="result-item"><div class="result-item-label">Status</div><div class="result-item-value ${confirmed ? 'green' : 'yellow'}">${confirmed ? '✅ Confirmed' : '⏳ Pending'}</div></div>
+                    <div class="result-item"><div class="result-item-label">Fee</div><div class="result-item-value yellow">${fee.toFixed(4)} BRD</div></div>
+                    <div class="result-item"><div class="result-item-label">Time</div><div class="result-item-value cyan">${tx.timestamp ? new Date(tx.timestamp).toLocaleString() : '--'}</div></div>
+                </div>
+            `;
+            showNotification('✅ ' + (t.transactionFoundTitle || 'Transação encontrada!'), '#00ff66');
+            return;
+
+        } catch (err) {
+            console.warn('TX lookup falhou:', err.message);
+            showNotFound(query);
+            return;
+        }
+    }
+
+    // ============================================
+    // 3. SÍMBOLO DE TOKEN
+    // ============================================
+    if (/^[A-Za-z0-9]{1,10}$/.test(query)) {
+        try {
+            let token = null;
+
+            // 3a. tenta cache local primeiro
+            if (typeof tokensCache !== 'undefined' && tokensCache.data?.length) {
+                token = tokensCache.data.find(tk =>
+                    (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
+                    (tk.name || '').toLowerCase() === query.toLowerCase()
+                );
+            }
+
+            // 3b. tenta buscar da API
+            if (!token) {
+                try {
+                    const raw = await apiCall('/api/v1/token/list');
+                    const list = Array.isArray(raw) ? raw
+                        : Array.isArray(raw?.data) ? raw.data
+                        : Array.isArray(raw?.tokens) ? raw.tokens
+                        : [];
+                    token = list.find(tk =>
+                        (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
+                        (tk.name || '').toLowerCase() === query.toLowerCase()
+                    );
+                } catch (_) {}
+            }
+
+            // 3c. tenta endpoint dedicado
+            if (!token) {
+                try {
+                    const raw = await apiCall('/api/v1/token/' + encodeURIComponent(query.toUpperCase()));
+                    const tk = extractPayload(raw);
+                    if (tk && (tk.symbol || tk.name)) token = tk;
+                } catch (_) {}
+            }
+
+            // 3d. fallback local conhecido
+            if (!token) {
+                const known = {
+                    BRD: { name: 'Bradicoin', symbol: 'BRD', price: 12.47, supply: 1_000_000_000, emoji: '⚡' },
+                    BTC: { name: 'Bitcoin', symbol: 'BTC', price: 68000, supply: 21_000_000, emoji: '₿' },
+                    ETH: { name: 'Ethereum', symbol: 'ETH', price: 3500, supply: 120_000_000, emoji: 'Ξ' },
+                    QTM: { name: 'Quantum Token', symbol: 'QTM', price: 2.50, supply: 500_000_000, emoji: '⚛️' },
+                    ZKT: { name: 'ZK-SNARK', symbol: 'ZKT', price: 5.00, supply: 100_000_000, emoji: '🔐' },
+                    AIP: { name: 'AI Protocol', symbol: 'AIP', price: 1.20, supply: 250_000_000, emoji: '🤖' }
+                };
+                token = known[query.toUpperCase()] || null;
+            }
+
+            if (!token) throw new Error('token not found');
+
+            const name   = token.name || token.symbol;
+            const symbol = token.symbol || '???';
+            const price  = Number(token.price || 0);
+            const supply = Number(token.supply || token.totalSupply || 0);
+            const emoji  = token.emoji || '🪙';
+            const mcap   = price * supply;
+
+            input?.classList.add('found');
+            result.className = 'result-box show found';
+            result.innerHTML = `
+                <div class="result-header">
+                    <span style="display:flex;align-items:center;gap:10px;">
+                        <span style="font-size:28px;">${emoji}</span>
+                        <span style="color:#ffc800;font-size:18px;font-weight:bold;">${name}</span>
+                    </span>
+                    <button class="result-copy-btn" onclick="copyToClipboard('${symbol}')">📋 Copy</button>
+                </div>
+                <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
+                    ✅ ${t.tokenFoundTitle || 'TOKEN ENCONTRADO'}
+                </div>
+                <div class="result-grid">
+                    <div class="result-item"><div class="result-item-label">Symbol</div><div class="result-item-value yellow">${symbol}</div></div>
+                    <div class="result-item"><div class="result-item-label">Price</div><div class="result-item-value green">$${price.toFixed(2)}</div></div>
+                    <div class="result-item"><div class="result-item-label">Supply</div><div class="result-item-value cyan">${supply.toLocaleString('en-US')}</div></div>
+                    <div class="result-item"><div class="result-item-label">Market Cap</div><div class="result-item-value magenta">$${mcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div></div>
+                </div>
+                <div class="result-actions">
+                    <button class="result-action-btn" onclick="copyToClipboard('${symbol}')">📋 Copy Symbol</button>
+                    <button class="result-action-btn" onclick="openTokenModal()">🪙 Ver Tokens</button>
+                </div>
+            `;
+            showNotification('✅ ' + (t.tokenFoundTitle || 'Token encontrado') + ': ' + symbol, '#ffc800');
+            return;
+
+        } catch (err) {
+            console.warn('Token lookup falhou:', err.message);
+            showNotFound(query);
+            return;
+        }
+    }
+
+          // ============================================
+         // 4. FORMATO INVÁLIDO
+        // ============================================
+        showNotFound(query);
+    }
+    
         // ============================================
         // VIEW HISTORY
         // ============================================
