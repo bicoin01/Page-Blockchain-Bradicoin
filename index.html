@@ -5060,36 +5060,51 @@ console.log(balance);</pre>
         // 📡 HTTP CLIENT — v2 (timeout adaptativo)
         // ============================================
         async function apiCall(path, options = {}) {
-            const controller = new AbortController();
+    const controller = new AbortController();
 
-            // ✅ Timeouts reduzidos para não travar a UI
-            const isHealthCheck = path === '/health' || path.startsWith('/health');
-            const isFirstCall   = !window._apiWarmedUp;
+    const isHealthCheck = path === '/health' || path.startsWith('/health');
+    const isFirstCall   = !window._apiWarmedUp;
 
-            let TIMEOUT = 8000;                    // padrão: 8s
-            if (isHealthCheck) TIMEOUT = 15000;   // health: 15s (cold start Render)
-            if (isFirstCall)   TIMEOUT = 15000;   // primeira chamada: 15s
+    let TIMEOUT = 8000;
+    if (isHealthCheck) TIMEOUT = 15000;
+    if (isFirstCall)   TIMEOUT = 15000;
 
-            const timeout = setTimeout(() => controller.abort(), TIMEOUT);
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT);
 
-            try {
-                const res = await fetch(API_BASE + path, {
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: controller.signal,
-                    ...options
-                });
+    try {
+        const res = await fetch(API_BASE + path, {
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            ...options
+        });
 
-                window._apiWarmedUp = true;
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
-                return data;
-            } catch (e) {
-                if (e.name === 'AbortError') throw new Error('Timeout');
-                throw e;
-            } finally {
-                clearTimeout(timeout);
-            }
+        window._apiWarmedUp = true;
+        const data = await res.json().catch(() => ({}));
+
+        // ⬇️ Diferencia 404 de outros erros
+        if (res.status === 404) {
+            const err = new Error(data.error || data.message || 'NOT_FOUND');
+            err.status = 404;
+            err.isNotFound = true;
+            err.data = data;
+            throw err;
         }
+
+        if (!res.ok) {
+            const err = new Error(data.error || 'HTTP ' + res.status);
+            err.status = res.status;
+            err.data = data;
+            throw err;
+        }
+
+        return data;
+    } catch (e) {
+        if (e.name === 'AbortError') throw new Error('Timeout');
+        throw e;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
         // ============================================
         // 📊 STATUS DA API
@@ -16344,10 +16359,10 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         // SEARCH WALLET / TOKEN / TX - REAL (v2)
         // ============================================
         async function searchWallet() {
-    const input = document.getElementById('searchInput');
-    const query = input?.value.trim();
-    const result = document.getElementById('searchResult');
-    const t = translations[currentLang] || translations.en;
+           const input = document.getElementById('searchInput');
+           const query = input?.value.trim();
+           const result = document.getElementById('searchResult');
+           const t = translations[currentLang] || translations.en;
 
     if (!query) {
         showNotification('⚠️ ' + (t.invalidAddress || 'Please enter an address or token symbol'), '#ff6464');
@@ -16366,36 +16381,59 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
     input?.classList.remove('error', 'found');
 
     // ────────────────────────────────────────────
-    // Helper: exibe mensagem "Wallet ou token não encontrado"
+    // Helper: mensagem "não encontrado"
     // ────────────────────────────────────────────
     const showNotFound = (term) => {
-        input?.classList.add('error');
-        result.className = 'result-box show not-found';
-        result.innerHTML = `
-            <div style="text-align:center;padding:24px;">
-                <div class="error-icon">🔍</div>
-                <div class="error-title">${t.walletOrTokenNotFound || 'Wallet ou token não encontrado'}</div>
-                <div class="error-message">
-                    ${t.walletOrTokenNotFoundMsg || 'A carteira ou token buscado não foi encontrado na blockchain Bradicoin.'}
-                    <br><code style="color:#ffc800;word-break:break-all;">${term}</code>
-                </div>
-                <div class="error-tip">
-                    ${t.walletOrTokenNotFoundTip || '💡 Verifique se o endereço está correto (deve começar com "Br") ou tente um símbolo válido.'}
-                </div>
-                <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
-                    <button class="error-clear-btn" onclick="clearSearch()">✕ Clear</button>
-                    <button class="error-clear-btn" style="border-color:#00ccff;color:#00ccff;"
-                        onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">
-                        🔍 Explorer
-                    </button>
-                </div>
+    // Blindagem: garante que temos os elementos
+    const inputEl = document.getElementById('searchInput');
+    const resultEl = document.getElementById('searchResult');
+    if (!resultEl) return;
+
+    if (inputEl) inputEl.classList.add('error');
+    resultEl.className = 'result-box show not-found';
+    resultEl.style.display = 'block';
+
+    // Pega traduções com fallback triplo
+    const t = translations[currentLang] || translations.en || {};
+    const en = translations.en || {};
+
+    const title = t.walletOrTokenNotFound || en.walletOrTokenNotFound
+                || t.walletNotFoundTitle || en.walletNotFoundTitle
+                || 'Not Found';
+
+    const message = t.walletOrTokenNotFoundMsg || en.walletOrTokenNotFoundMsg
+                  || t.walletNotFoundMessage || en.walletNotFoundMessage
+                  || 'The address or token was not found on the Bradicoin blockchain.';
+
+    const tip = t.walletOrTokenNotFoundTip || en.walletOrTokenNotFoundTip
+              || '💡 Check if the address is correct (must start with "Br") or try a valid token symbol.';
+
+    resultEl.innerHTML = `
+        <div style="text-align:center;padding:24px;">
+            <div class="error-icon">🔍</div>
+            <div class="error-title">${title}</div>
+            <div class="error-message">
+                ${message}
+                <br><code style="color:#ffc800;word-break:break-all;font-size:11px;">${term}</code>
             </div>
-        `;
-        showNotification('❌ ' + (t.walletOrTokenNotFound || 'Não encontrado'), '#ff6464');
-    };
+            <div class="error-tip">${tip}</div>
+            <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
+                <button class="error-clear-btn" onclick="clearSearch()">✕ Clear</button>
+                <button class="error-clear-btn" style="border-color:#00ccff;color:#00ccff;"
+                    onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">
+                    🔍 Explorer
+                </button>
+            </div>
+        </div>
+    `;
+
+    try {
+        showNotification('❌ ' + title, '#ff6464');
+    } catch (_) {}
+};
 
     // ────────────────────────────────────────────
-    // Helper: extrai o objeto real da resposta (qualquer formato)
+    // Helper: extrai payload de qualquer formato
     // ────────────────────────────────────────────
     const extractPayload = (res) => {
         if (!res) return null;
@@ -16410,7 +16448,34 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
     // ============================================
     if (query.startsWith('Br') && query.length >= 6) {
         try {
-            const raw = await apiCall('/api/wallet/balance/' + encodeURIComponent(query));
+            // ⚠️ USA FETCH DIRETO para não cair no throw do apiCall em 404
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
+
+            let raw;
+            try {
+                const res = await fetch(API_BASE + '/api/wallet/balance/' + encodeURIComponent(query), {
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+
+                // Se 404 → wallet não existe → mostra "não encontrada"
+                if (res.status === 404) {
+                    showNotFound(query);
+                    return;
+                }
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                raw = await res.json();
+            } catch (fetchErr) {
+                clearTimeout(timeout);
+                if (fetchErr.name === 'AbortError') {
+                    throw new Error('Timeout');
+                }
+                throw fetchErr;
+            }
+
             const w = extractPayload(raw);
 
             // Aceita vários formatos de resposta
@@ -16420,9 +16485,12 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 w.balances !== undefined
             );
 
-            if (!hasData) throw new Error('empty');
+            if (!hasData) {
+                showNotFound(query);
+                return;
+            }
 
-            // Normaliza os campos (aceita camelCase e snake_case)
+            // Normaliza os campos
             const address   = w.address || w.walletAddress || w.wallet || query;
             const balance   = Number(w.balance ?? w.amount ?? w.confirmed ?? 0);
             const pending   = Number(w.pending ?? w.unconfirmed ?? 0);
@@ -16439,7 +16507,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                     <button class="result-copy-btn" onclick="copyToClipboard('${address}')">📋 Copy</button>
                 </div>
                 <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                    ✅ ${t.walletFoundTitle || 'WALLET ENCONTRADA'}
+                    ✅ ${t.walletFoundTitle || 'WALLET FOUND'}
                 </div>
                 <div class="result-grid">
                     <div class="result-item">
@@ -16474,7 +16542,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                     <button class="result-action-btn" onclick="copyToClipboard('${address}')">📋 Copy</button>
                     <button class="result-action-btn" onclick="window.open('https://bradicoin-api.onrender.com/explorer', '_blank')">🔍 Explorer</button>
                 </div>
-                <div class="last-updated"><span>Atualizado: ${new Date().toLocaleString()}</span></div>
+                <div class="last-updated"><span>Updated: ${new Date().toLocaleString()}</span></div>
             `;
 
             try {
@@ -16483,11 +16551,12 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 }));
             } catch (_) {}
 
-            showNotification('✅ ' + (t.walletFoundTitle || 'Wallet encontrada!'), '#00ff66');
+            showNotification('✅ ' + (t.walletFoundTitle || 'Wallet found!'), '#00ff66');
             return;
 
         } catch (err) {
-            console.warn('Wallet lookup falhou:', err.message);
+            console.warn('Wallet lookup failed:', err.message);
+            // Mostra a mensagem de "não encontrado" para qualquer falha
             showNotFound(query);
             return;
         }
@@ -16498,10 +16567,25 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
     // ============================================
     if (/^(0x)?[a-fA-F0-9]{16,}$/.test(query)) {
         try {
-            const raw = await apiCall('/api/transaction/' + encodeURIComponent(query));
-            const tx = extractPayload(raw);
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12000);
 
-            if (!tx || (!tx.hash && !tx.signature)) throw new Error('not found');
+            let raw;
+            try {
+                const res = await fetch(API_BASE + '/api/transaction/' + encodeURIComponent(query), {
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                if (res.status === 404) { showNotFound(query); return; }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                raw = await res.json();
+            } catch (e) {
+                clearTimeout(timeout);
+                throw e;
+            }
+
+            const tx = extractPayload(raw);
+            if (!tx || (!tx.hash && !tx.signature)) { showNotFound(query); return; }
 
             const hash      = tx.hash || tx.signature || query;
             const from      = tx.fromAddress || tx.from || 'COINBASE';
@@ -16518,7 +16602,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                     <button class="result-copy-btn" onclick="copyToClipboard('${hash}')">📋 Copy</button>
                 </div>
                 <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                    ✅ ${t.transactionFoundTitle || 'TRANSAÇÃO ENCONTRADA'}
+                    ✅ ${t.transactionFoundTitle || 'TRANSACTION FOUND'}
                 </div>
                 <div class="result-grid">
                     <div class="result-item"><div class="result-item-label">From</div><div class="result-item-value cyan">${String(from).slice(0,20)}...</div></div>
@@ -16529,11 +16613,11 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                     <div class="result-item"><div class="result-item-label">Time</div><div class="result-item-value cyan">${tx.timestamp ? new Date(tx.timestamp).toLocaleString() : '--'}</div></div>
                 </div>
             `;
-            showNotification('✅ ' + (t.transactionFoundTitle || 'Transação encontrada!'), '#00ff66');
+            showNotification('✅ ' + (t.transactionFoundTitle || 'Transaction found!'), '#00ff66');
             return;
 
         } catch (err) {
-            console.warn('TX lookup falhou:', err.message);
+            console.warn('TX lookup failed:', err.message);
             showNotFound(query);
             return;
         }
@@ -16546,7 +16630,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         try {
             let token = null;
 
-            // 3a. tenta cache local primeiro
+            // 3a. Cache local
             if (typeof tokensCache !== 'undefined' && tokensCache.data?.length) {
                 token = tokensCache.data.find(tk =>
                     (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
@@ -16554,31 +16638,43 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 );
             }
 
-            // 3b. tenta buscar da API
+            // 3b. API
             if (!token) {
                 try {
-                    const raw = await apiCall('/api/v1/token/list');
-                    const list = Array.isArray(raw) ? raw
-                        : Array.isArray(raw?.data) ? raw.data
-                        : Array.isArray(raw?.tokens) ? raw.tokens
-                        : [];
-                    token = list.find(tk =>
-                        (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
-                        (tk.name || '').toLowerCase() === query.toLowerCase()
-                    );
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 8000);
+                    const res = await fetch(API_BASE + '/api/v1/token/list', { signal: controller.signal });
+                    clearTimeout(timeout);
+                    if (res.ok) {
+                        const raw = await res.json();
+                        const list = Array.isArray(raw) ? raw
+                            : Array.isArray(raw?.data) ? raw.data
+                            : Array.isArray(raw?.tokens) ? raw.tokens
+                            : [];
+                        token = list.find(tk =>
+                            (tk.symbol || '').toUpperCase() === query.toUpperCase() ||
+                            (tk.name || '').toLowerCase() === query.toLowerCase()
+                        );
+                    }
                 } catch (_) {}
             }
 
-            // 3c. tenta endpoint dedicado
+            // 3c. Endpoint dedicado
             if (!token) {
                 try {
-                    const raw = await apiCall('/api/v1/token/' + encodeURIComponent(query.toUpperCase()));
-                    const tk = extractPayload(raw);
-                    if (tk && (tk.symbol || tk.name)) token = tk;
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 8000);
+                    const res = await fetch(API_BASE + '/api/v1/token/' + encodeURIComponent(query.toUpperCase()), { signal: controller.signal });
+                    clearTimeout(timeout);
+                    if (res.ok) {
+                        const raw = await res.json();
+                        const tk = extractPayload(raw);
+                        if (tk && (tk.symbol || tk.name)) token = tk;
+                    }
                 } catch (_) {}
             }
 
-            // 3d. fallback local conhecido
+            // 3d. Fallback local
             if (!token) {
                 const known = {
                     BRD: { name: 'Bradicoin', symbol: 'BRD', price: 12.47, supply: 1_000_000_000, emoji: '⚡' },
@@ -16591,7 +16687,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 token = known[query.toUpperCase()] || null;
             }
 
-            if (!token) throw new Error('token not found');
+            if (!token) { showNotFound(query); return; }
 
             const name   = token.name || token.symbol;
             const symbol = token.symbol || '???';
@@ -16611,7 +16707,7 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                     <button class="result-copy-btn" onclick="copyToClipboard('${symbol}')">📋 Copy</button>
                 </div>
                 <div style="color:#00ff66;font-size:14px;margin-bottom:12px;font-weight:bold;">
-                    ✅ ${t.tokenFoundTitle || 'TOKEN ENCONTRADO'}
+                    ✅ ${t.tokenFoundTitle || 'TOKEN FOUND'}
                 </div>
                 <div class="result-grid">
                     <div class="result-item"><div class="result-item-label">Symbol</div><div class="result-item-value yellow">${symbol}</div></div>
@@ -16621,25 +16717,24 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
                 </div>
                 <div class="result-actions">
                     <button class="result-action-btn" onclick="copyToClipboard('${symbol}')">📋 Copy Symbol</button>
-                    <button class="result-action-btn" onclick="openTokenModal()">🪙 Ver Tokens</button>
+                    <button class="result-action-btn" onclick="openTokenModal()">🪙 View Tokens</button>
                 </div>
             `;
-            showNotification('✅ ' + (t.tokenFoundTitle || 'Token encontrado') + ': ' + symbol, '#ffc800');
+            showNotification('✅ ' + (t.tokenFoundTitle || 'Token found') + ': ' + symbol, '#ffc800');
             return;
 
         } catch (err) {
-            console.warn('Token lookup falhou:', err.message);
+            console.warn('Token lookup failed:', err.message);
             showNotFound(query);
             return;
         }
     }
 
-          // ============================================
-         // 4. FORMATO INVÁLIDO
-        // ============================================
-        showNotFound(query);
-    }
-    
+    // ============================================
+    // 4. FORMATO INVÁLIDO
+    // ============================================
+    showNotFound(query);
+}
         // ============================================
         // VIEW HISTORY
         // ============================================
