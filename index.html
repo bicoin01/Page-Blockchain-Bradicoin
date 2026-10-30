@@ -15741,54 +15741,73 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         }
 
         // ---------- Top Stakers ----------
-        async function loadTopStakers(forceRefresh = false) {
-            const container = document.getElementById('topStakersList');
-            if (!container) return;
-            const now = Date.now();
-            if (!forceRefresh && topStakersCache.data.length && (now - topStakersCache.lastFetch) < topStakersCache.ttl) {
-                renderTopStakers(topStakersCache.data);
-                return;
-            }
-            let list = [];
-            try {
-                const data = await apiCall('/api/staking/top-stakers?limit=10');
-                const arr = data?.data || data?.stakers || [];
-                if (Array.isArray(arr) && arr.length) list = arr;
-            } catch (_) {}
-            if (!list.length) {
-                const seed = (s) => { let h = 2166136261; for (let j = 0; j < s.length; j++) { h ^= s.charCodeAt(j); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; };
-                list = Array.from({ length: 10 }, (_, i) => {
-                    const a = Math.floor(seed('sA_' + i) * 1e9).toString(36).toUpperCase();
-                    return { address: 'Br' + a.slice(0, 12), staked: Math.round((500000 - i * 35000) + seed('sV_' + i) * 20000), apy: 18 + (i % 3) * 0.5 };
-                });
-            }
-            topStakersCache.data = list;
-            topStakersCache.lastFetch = now;
-            renderTopStakers(list);
-        }
+    async function loadTopStakers(forceRefresh = false) {
+    const container = document.getElementById('topStakersList');
+    if (!container) return;
 
-        function renderTopStakers(list) {
-            const container = document.getElementById('topStakersList');
-            if (!container) return;
-            if (!list.length) {
-                container.innerHTML = '<div style="text-align:center;padding:30px;color:#666;font-size:11px;">No stakers yet</div>';
-                return;
-            }
-            const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
-            container.innerHTML = list.slice(0, 10).map((s, i) => {
-                const rank = i + 1;
-                const rankIcon = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
-                const addr = s.address || s.wallet || '—';
-                const short = addr.length > 18 ? addr.slice(0, 10) + '…' + addr.slice(-6) : addr;
-                return `
-                    <div style="display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:center;background:rgba(255,200,0,0.04);border:1px solid rgba(255,200,0,0.15);border-radius:8px;padding:10px 14px;margin-bottom:8px;font-family:'Orbitron',monospace;font-size:12px;">
-                        <span style="color:#ffc800;font-weight:bold;text-align:center;font-size:14px;">${rankIcon}</span>
-                        <span style="color:#ffc800;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;" title="Click to copy" onclick="copyToClipboard('${addr}')">${short}</span>
-                        <span style="color:#00ff66;font-weight:bold;white-space:nowrap;">${fmt(s.staked)} BRD</span>
-                    </div>
-                `;
-            }).join('');
-        }
+    const now = Date.now();
+    if (!forceRefresh && topStakersCache.data.length &&
+        (now - topStakersCache.lastFetch) < topStakersCache.ttl) {
+        renderTopStakers(topStakersCache.data);
+        return;
+    }
+
+    // Mostra loading só se ainda não tem nada
+    if (!topStakersCache.data.length) {
+        container.innerHTML = '<div style="text-align:center;padding:30px;color:#888;font-size:11px;">⏳ Loading top stakers...</div>';
+    }
+
+    let list = [];
+    try {
+        const data = await apiCall('/api/staking/top-stakers?limit=10');
+        const arr = data?.data || data?.stakers || [];
+        if (Array.isArray(arr)) list = arr;
+    } catch (e) {
+        console.warn('⚠️ top-stakers indisponível:', e.message);
+    }
+
+    // Se não veio nada da API, mostra estado vazio honesto (sem dados fake)
+    topStakersCache.data = list;
+    topStakersCache.lastFetch = now;
+    renderTopStakers(list);
+}
+       function renderTopStakers(list) {
+    const container = document.getElementById('topStakersList');
+    if (!container) return;
+
+    if (!list || list.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center;padding:30px 20px;color:#888;">
+                <div style="font-size:36px;margin-bottom:10px;opacity:0.5;">🏆</div>
+                <p style="color:#ffc800;font-size:13px;margin-bottom:6px;font-family:'Orbitron',monospace;">
+                    Nenhum staker registrado ainda
+                </p>
+                <p style="font-size:11px;color:#666;">
+                    Os dados aparecem aqui quando usuários fizerem staking pelo aplicativo Bradicoin.
+                </p>
+                <button onclick="loadTopStakers(true)" style="margin-top:12px;background:rgba(255,200,0,0.15);border:1px solid #ffc800;color:#ffc800;padding:6px 16px;border-radius:6px;cursor:pointer;font-family:'Orbitron',monospace;font-size:11px;">
+                    🔄 Tentar novamente
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    container.innerHTML = list.slice(0, 10).map((s, i) => {
+        const rank = i + 1;
+        const rankIcon = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+        const addr = s.address || s.wallet || '—';
+        const short = addr.length > 18 ? addr.slice(0, 10) + '…' + addr.slice(-6) : addr;
+        return `
+            <div style="display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:center;background:rgba(255,200,0,0.04);border:1px solid rgba(255,200,0,0.15);border-radius:8px;padding:10px 14px;margin-bottom:8px;font-family:'Orbitron',monospace;font-size:12px;">
+                <span style="color:#ffc800;font-weight:bold;text-align:center;font-size:14px;">${rankIcon}</span>
+                <span style="color:#ffc800;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;" title="Click to copy" onclick="copyToClipboard('${addr}')">${short}</span>
+                <span style="color:#00ff66;font-weight:bold;white-space:nowrap;">${fmt(s.staked)} BRD</span>
+            </div>
+        `;
+    }).join('');
+}
 
         // ---------- Stakes de um endereço (leitura) ----------
         async function loadMyStakes() {
