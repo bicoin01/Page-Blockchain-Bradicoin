@@ -13,7 +13,7 @@
     <link rel="dns-prefetch" href="https://bradicoin-api.onrender.com">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://bradicoin-api.onrender.com/socket.io/socket.io.js" defer></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
     <style>
         /* ===== RESET E BASE ===== */
         * {
@@ -5057,17 +5057,25 @@ console.log(balance);</pre>
         };
 
         // ============================================
-        // 📡 HTTP CLIENT — v2 (timeout adaptativo)
+        // 📡 HTTP CLIENT — v3 (com cooldown global anti-storm)
         // ============================================
-        async function apiCall(path, options = {}) {
+        let _apiOfflineUntil = 0;
+
+async function apiCall(path, options = {}) {
+    // Se API está marcada como offline, bloqueia por 30s
+    if (Date.now() < _apiOfflineUntil) {
+        throw new Error('API cooldown');
+    }
+
     const controller = new AbortController();
 
     const isHealthCheck = path === '/health' || path.startsWith('/health');
     const isFirstCall   = !window._apiWarmedUp;
 
+    // Health: 60s (Render wake). Outros: 15s primeira vez, 8s depois.
     let TIMEOUT = 8000;
-    if (isHealthCheck) TIMEOUT = 15000;
-    if (isFirstCall)   TIMEOUT = 15000;
+    if (isHealthCheck) TIMEOUT = 60000;
+    else if (isFirstCall) TIMEOUT = 15000;
 
     const timeout = setTimeout(() => controller.abort(), TIMEOUT);
 
@@ -5078,10 +5086,18 @@ console.log(balance);</pre>
             ...options
         });
 
+        clearTimeout(timeout);
         window._apiWarmedUp = true;
+
+        // Se caiu (5xx), marca offline por 30s para parar a tempestade
+        if (res.status >= 500) {
+            _apiOfflineUntil = Date.now() + 30000;
+            throw new Error('HTTP ' + res.status);
+        }
+
         const data = await res.json().catch(() => ({}));
 
-        // ⬇️ Diferencia 404 de outros erros
+        // 404 — recurso não encontrado (não é "offline")
         if (res.status === 404) {
             const err = new Error(data.error || data.message || 'NOT_FOUND');
             err.status = 404;
@@ -5098,11 +5114,21 @@ console.log(balance);</pre>
         }
 
         return data;
+
     } catch (e) {
-        if (e.name === 'AbortError') throw new Error('Timeout');
-        throw e;
-    } finally {
         clearTimeout(timeout);
+
+        if (e.name === 'AbortError') {
+            _apiOfflineUntil = Date.now() + 30000;
+            throw new Error('Timeout');
+        }
+
+        // Se foi erro de rede (API offline de verdade)
+        if (e instanceof TypeError || e.message === 'Failed to fetch') {
+            _apiOfflineUntil = Date.now() + 30000;
+        }
+
+        throw e;
     }
 }
 
@@ -16938,87 +16964,100 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
         }
 
         // ============================================
-        // 🔌 WEBSOCKET — v2 (não-bloqueante)
+        // 🔌 WEBSOCKET — v3 (com limite de tentativas)
         // ============================================
         let socket = null;
+        let _wsAttempts = 0;
+        let _wsGaveUp = false;
+        const WS_MAX_ATTEMPTS = 5;
 
-        function initWebSocket() {
-            if (typeof io === 'undefined') {
-                console.warn('⚠️ Socket.IO ainda não carregou — retry em 3s');
-                setTimeout(initWebSocket, 3000);
-                return;
-            }
+function initWebSocket() {
+    if (_wsGaveUp) return;
 
-            if (!window._apiWarmedUp) {
-                console.log('⏸️ WebSocket aguardando backend acordar...');
-                setTimeout(initWebSocket, 2000);
-                return;
-            }
-
-            try {
-                socket = io('https://bradicoin-api.onrender.com', {
-                    transports: ['websocket', 'polling'],
-                    reconnection: true,
-                    reconnectionAttempts: 2,
-                    reconnectionDelay: 10000,
-                    timeout: 8000,
-                    autoConnect: true
-                });
-            } catch (e) {
-                console.warn('⚠️ WebSocket falhou:', e.message);
-                return;
-            }
-
-            socket.on('connect', () => {
-                console.log('🔌 WebSocket conectado');
-                updateApiStatus('online', '✅ API Online - Real-time conectado');
-            });
-
-            socket.on('disconnect', () => {
-                console.warn('🔌 WebSocket desconectado');
-                updateApiStatus('offline', '❌ API Offline');
-            });
-
-            socket.on('connect_error', () => {
-                // silencioso — não derruba a página
-            });
-
-            socket.on('blockchain:init', (data) => {
-                if (!data) return;
-                if (data.blocks !== undefined) {
-                    const el = document.getElementById('blockHeightValue');
-                    if (el) el.textContent = data.blocks.toLocaleString();
-                    const statEl = document.getElementById('statTotalBlocks');
-                    if (statEl) statEl.textContent = data.blocks.toLocaleString();
-                }
-                if (data.transactions !== undefined) {
-                    const el = document.getElementById('pendingValue');
-                    if (el) el.textContent = data.transactions;
-                    const statEl = document.getElementById('statPendingTX');
-                    if (statEl) statEl.textContent = data.transactions;
-                }
-                if (data.validators !== undefined) {
-                    const el = document.getElementById('validatorsValue');
-                    if (el) el.textContent = data.validators;
-                    const countEl = document.getElementById('validatorCount');
-                    if (countEl) countEl.textContent = data.validators + ' Active';
-                }
-            });
-
-            socket.on('block:mined', (block) => {
-                if (!block) return;
-                const el = document.getElementById('blockHeightValue');
-                if (el) el.textContent = block.index.toLocaleString();
-                const statEl = document.getElementById('statTotalBlocks');
-                if (statEl) statEl.textContent = block.index.toLocaleString();
-                showNotification('⛏️ Bloco #' + block.index + ' minerado!', '#00ff66');
-            });
-
-            socket.on('staking:reward', (data) => {
-                if (!data) return;
-                showNotification('💰 +' + Number(data.reward || 0).toFixed(2) + ' BRD de reward!', '#ffc800');
-            });
+    if (typeof io === 'undefined') {
+        _wsAttempts++;
+        if (_wsAttempts >= WS_MAX_ATTEMPTS) {
+            _wsGaveUp = true;
+            console.warn(`⚠️ Socket.IO não carregou após ${WS_MAX_ATTEMPTS} tentativas. Desistindo.`);
+            updateApiStatus('offline', '❌ Real-time indisponível');
+            return;
         }
+        console.log(`🔌 Socket.IO tentativa ${_wsAttempts}/${WS_MAX_ATTEMPTS} em 10s...`);
+        setTimeout(initWebSocket, 10000);
+        return;
+    }
+
+    if (!window._apiWarmedUp) {
+        console.log('⏸️ WebSocket aguardando backend acordar...');
+        setTimeout(initWebSocket, 3000);
+        return;
+    }
+
+    try {
+        socket = io('https://bradicoin-api.onrender.com', {
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 3,
+            reconnectionDelay: 15000,
+            timeout: 8000,
+            autoConnect: true
+        });
+    } catch (e) {
+        console.warn('⚠️ WebSocket falhou:', e.message);
+        _wsGaveUp = true;
+        return;
+    }
+
+    socket.on('connect', () => {
+        console.log('🔌 WebSocket conectado');
+        updateApiStatus('online', '✅ API Online - Real-time conectado');
+    });
+
+    socket.on('disconnect', () => {
+        console.warn('🔌 WebSocket desconectado');
+        updateApiStatus('offline', '❌ API Offline');
+    });
+
+    socket.on('connect_error', () => {
+        // silencioso
+    });
+
+    socket.on('blockchain:init', (data) => {
+        if (!data) return;
+        if (data.blocks !== undefined) {
+            const el = document.getElementById('blockHeightValue');
+            if (el) el.textContent = data.blocks.toLocaleString();
+            const statEl = document.getElementById('statTotalBlocks');
+            if (statEl) statEl.textContent = data.blocks.toLocaleString();
+        }
+        if (data.transactions !== undefined) {
+            const el = document.getElementById('pendingValue');
+            if (el) el.textContent = data.transactions;
+            const statEl = document.getElementById('statPendingTX');
+            if (statEl) statEl.textContent = data.transactions;
+        }
+        if (data.validators !== undefined) {
+            const el = document.getElementById('validatorsValue');
+            if (el) el.textContent = data.validators;
+            const countEl = document.getElementById('validatorCount');
+            if (countEl) countEl.textContent = data.validators + ' Active';
+        }
+    });
+
+    socket.on('block:mined', (block) => {
+        if (!block) return;
+        const el = document.getElementById('blockHeightValue');
+        if (el) el.textContent = block.index.toLocaleString();
+        const statEl = document.getElementById('statTotalBlocks');
+        if (statEl) statEl.textContent = block.index.toLocaleString();
+        showNotification('⛏️ Bloco #' + block.index + ' minerado!', '#00ff66');
+    });
+
+    socket.on('staking:reward', (data) => {
+        if (!data) return;
+        showNotification('💰 +' + Number(data.reward || 0).toFixed(2) + ' BRD de reward!', '#ffc800');
+    });
+}
 
         // ============================================
         // LOAD REAL DATA (PARALELO — 3 chamadas simultâneas)
@@ -17148,46 +17187,60 @@ BRADICOIN_API_URL=https://bradicoin-api.onrender.com
             }
 
             // ============================================
-            // 🚀 BOOT PARALELO OTIMIZADO — v2
+            // 🚀 BOOT SEQUENCIAL — v3 (warmup + série)
             // ============================================
             (async () => {
-                // 1. CRÍTICO — dispara sem await (não bloqueia o resto)
-                loadRealData().catch(() => {});
+                console.log('🚀 Iniciando boot sequencial...');
 
-                // 2. WebSocket só depois que o backend acordou (com retry interno)
-                setTimeout(() => initWebSocket(), 1500);
+    // FASE 1 — WARMUP: acorda o backend (pode levar 60s no Render free)
+    try {
+        console.log('🔥 Acordando backend (timeout 70s)...');
+        await apiCall('/health', {
+            signal: AbortSignal.timeout(70000)
+        });
+        console.log('✅ Backend acordou!');
+        window._apiWarmedUp = true;
+    } catch (e) {
+        console.warn('⚠️ Backend não respondeu no warmup:', e.message);
+        updateApiStatus('offline', '⚠️ API acordando... aguarde');
+    }
 
-                // 3. IMPORTANTE — 300ms depois, em paralelo, sem await
-                setTimeout(() => {
-                    Promise.allSettled([
-                        loadTokenList(),
-                        loadNFTList(),
-                        loadValidators()
-                    ]).catch(() => {});
-                }, 300);
+    // FASE 2 — CARREGAMENTO SEQUENCIAL (uma de cada vez)
+    console.log('📥 Carregando dados em série...');
 
-                // 4. OPCIONAL — escalonado, não compete com o boot
-                setTimeout(() => { initStakingPanel(); }, 1500);
-                setTimeout(() => { checkDevApiStatus(); restoreActiveApp(); }, 2500);
-                setTimeout(() => { qgInit(); }, 3000);
-                setTimeout(() => { loadTransactionHistory(); }, 2000);
+    try { await loadRealData(); } catch (e) { console.warn('loadRealData:', e.message); }
+    try { await loadTokenList(); } catch (e) { console.warn('loadTokenList:', e.message); }
+    try { await loadNFTList(); } catch (e) { console.warn('loadNFTList:', e.message); }
+    try { await loadValidators(); } catch (e) { console.warn('loadValidators:', e.message); }
+    try { initStakingPanel(); } catch (e) { console.warn('initStakingPanel:', e.message); }
+    try { await loadTransactionHistory(); } catch (e) { console.warn('loadTransactionHistory:', e.message); }
+    try { checkDevApiStatus(); restoreActiveApp(); } catch (e) { console.warn('devApi:', e.message); }
+    try { qgInit(); } catch (e) { console.warn('qgInit:', e.message); }
 
-                // 5. FRAUD — só quando o usuário rolar até ele
-                const fraudRoot = document.getElementById('fraudRootPage');
-                if (fraudRoot && 'IntersectionObserver' in window) {
-                    const obs = new IntersectionObserver((entries) => {
-                        entries.forEach(e => {
-                            if (e.isIntersecting) {
-                                obs.disconnect();
-                                initFraudDashboard('fraudRootPage');
-                            }
-                        });
-                    }, { rootMargin: '200px' });
-                    obs.observe(fraudRoot);
-                } else {
-                    setTimeout(() => initFraudDashboard('fraudRootPage'), 5000);
+    // FASE 3 — WebSocket só depois de tudo carregado
+    setTimeout(() => initWebSocket(), 2000);
+
+    // FASE 4 — Network Status
+    if (typeof window.loadNetworkStatusReal === 'function') {
+        window.loadNetworkStatusReal(true);
+    }
+
+    // FASE 5 — Fraud via IntersectionObserver (lazy)
+    const fraudRoot = document.getElementById('fraudRootPage');
+    if (fraudRoot && 'IntersectionObserver' in window) {
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    obs.disconnect();
+                    initFraudDashboard('fraudRootPage');
                 }
-            })();
+            });
+        }, { rootMargin: '200px' });
+        obs.observe(fraudRoot);
+    }
+
+    console.log('✅ Boot completo!');
+})();
 
             // ============================================
             // ⏱️ INTERVALOS — só começam DEPOIS do boot (10s de folga)
